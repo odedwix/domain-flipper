@@ -1,0 +1,742 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Domain Flipper</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=Mulish:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+:root {
+  --bg: #0e0e0e; --surface: #161616; --card: #1c1c1c; --border: #2a2a2a;
+  --text: #e8e4dc; --muted: #888; --dim: #555;
+  --gold: #d4a843; --gold-dim: rgba(212,168,67,0.12);
+  --green: #4caf7d; --green-dim: rgba(76,175,125,0.1);
+  --red: #e05c5c; --red-dim: rgba(224,92,92,0.1);
+  --blue: #5b9bd5; --blue-dim: rgba(91,155,213,0.1);
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'Mulish', sans-serif; background: var(--bg); color: var(--text); font-size: 14px; line-height: 1.6; }
+
+/* Layout */
+.app { display: grid; grid-template-columns: 1fr 420px; grid-template-rows: auto 1fr; height: 100vh; overflow: hidden; }
+.topbar { grid-column: 1 / -1; background: var(--surface); border-bottom: 1px solid var(--border); padding: 0 24px; display: flex; align-items: center; gap: 20px; height: 60px; }
+.main { overflow-y: auto; padding: 24px; }
+.panel { border-left: 1px solid var(--border); background: var(--surface); overflow-y: auto; }
+.panel.hidden { display: none; }
+
+/* Topbar */
+.logo { font-family: 'DM Serif Display', serif; font-size: 1.3rem; color: #fff; }
+.logo em { color: var(--gold); font-style: italic; }
+.topbar-stats { display: flex; gap: 24px; margin-left: 20px; }
+.ts { display: flex; flex-direction: column; }
+.ts-val { font-family: 'DM Serif Display', serif; font-size: 1.1rem; color: #fff; line-height: 1; }
+.ts-label { font-size: 0.65rem; color: var(--dim); text-transform: uppercase; letter-spacing: 0.08em; }
+.spacer { flex: 1; }
+.scan-btn { padding: 9px 20px; background: var(--gold); color: #000; border: none; border-radius: 8px; font-family: 'Mulish', sans-serif; font-size: 0.82rem; font-weight: 700; cursor: pointer; transition: opacity 0.15s; }
+.scan-btn:hover { opacity: 0.85; }
+.scan-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.scan-status { font-size: 0.75rem; color: var(--muted); }
+
+/* Filters */
+.filters { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 20px; align-items: center; }
+.filter-select, .filter-input {
+  padding: 7px 12px; background: var(--card); border: 1px solid var(--border); border-radius: 8px;
+  color: var(--text); font-family: 'Mulish', sans-serif; font-size: 0.8rem; cursor: pointer;
+}
+.filter-select:focus, .filter-input:focus { outline: none; border-color: var(--gold); }
+.filter-label { font-size: 0.75rem; color: var(--muted); }
+
+/* Table */
+.table-wrap { background: var(--card); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+table { width: 100%; border-collapse: collapse; }
+th { background: var(--surface); padding: 10px 14px; text-align: left; font-size: 0.68rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); border-bottom: 1px solid var(--border); cursor: pointer; user-select: none; white-space: nowrap; }
+th:hover { color: var(--gold); }
+th.sorted { color: var(--gold); }
+td { padding: 11px 14px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+tr:last-child td { border-bottom: none; }
+tr:hover td { background: rgba(255,255,255,0.02); cursor: pointer; }
+tr.selected td { background: var(--gold-dim); }
+
+.domain-name { font-weight: 700; color: #fff; font-size: 0.9rem; }
+.domain-tld { font-size: 0.75rem; color: var(--muted); }
+
+/* Score bar */
+.score-cell { display: flex; align-items: center; gap: 8px; }
+.score-bar { flex: 1; height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; max-width: 80px; }
+.score-fill { height: 100%; border-radius: 3px; }
+.score-num { font-family: 'DM Serif Display', serif; font-size: 1rem; color: #fff; min-width: 32px; }
+
+.value-cell { font-family: 'DM Serif Display', serif; font-size: 1rem; color: var(--green); }
+.age-cell { color: var(--muted); font-size: 0.82rem; }
+.bl-cell { color: var(--muted); font-size: 0.82rem; }
+
+.status-badge {
+  padding: 3px 9px; border-radius: 20px; font-size: 0.65rem; font-weight: 700;
+  letter-spacing: 0.08em; text-transform: uppercase; white-space: nowrap;
+}
+.s-available { background: var(--green-dim); color: var(--green); border: 1px solid rgba(76,175,125,0.3); }
+.s-watchlist { background: var(--gold-dim); color: var(--gold); border: 1px solid rgba(212,168,67,0.3); }
+.s-purchased { background: var(--blue-dim); color: var(--blue); border: 1px solid rgba(91,155,213,0.3); }
+.s-sold      { background: rgba(100,100,100,0.15); color: #aaa; border: 1px solid rgba(100,100,100,0.3); }
+.s-passed    { background: var(--red-dim); color: var(--red); border: 1px solid rgba(224,92,92,0.3); }
+
+.action-btn {
+  padding: 5px 12px; border-radius: 6px; border: 1px solid var(--border);
+  background: transparent; color: var(--text); font-size: 0.72rem; font-weight: 600;
+  cursor: pointer; transition: all 0.12s; font-family: 'Mulish', sans-serif;
+}
+.action-btn:hover { border-color: var(--gold); color: var(--gold); }
+.action-btn.buy { background: var(--gold); color: #000; border-color: var(--gold); }
+.action-btn.buy:hover { opacity: 0.85; }
+
+.empty-state { padding: 60px; text-align: center; color: var(--muted); }
+.empty-state h3 { font-family: 'DM Serif Display', serif; font-size: 1.4rem; color: #fff; margin-bottom: 8px; }
+
+.pagination { display: flex; align-items: center; gap: 10px; margin-top: 16px; justify-content: center; }
+.page-btn { padding: 6px 14px; background: var(--card); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-size: 0.8rem; cursor: pointer; }
+.page-btn:hover { border-color: var(--gold); color: var(--gold); }
+.page-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.page-info { font-size: 0.8rem; color: var(--muted); }
+
+/* Detail panel */
+.panel-header { padding: 20px 24px; border-bottom: 1px solid var(--border); display: flex; align-items: flex-start; justify-content: space-between; }
+.panel-close { background: none; border: none; color: var(--muted); font-size: 1.2rem; cursor: pointer; padding: 2px 6px; border-radius: 4px; }
+.panel-close:hover { color: #fff; background: rgba(255,255,255,0.05); }
+.panel-domain { font-family: 'DM Serif Display', serif; font-size: 1.4rem; color: #fff; }
+.panel-sub { font-size: 0.8rem; color: var(--muted); margin-top: 3px; }
+.panel-body { padding: 20px 24px; }
+
+.panel-value { display: flex; align-items: baseline; gap: 6px; margin-bottom: 20px; }
+.panel-value .pv-num { font-family: 'DM Serif Display', serif; font-size: 2.4rem; color: var(--green); }
+.panel-value .pv-label { font-size: 0.75rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; }
+
+.score-breakdown { margin-bottom: 24px; }
+.sb-title { font-size: 0.68rem; font-weight: 700; letter-spacing: 0.15em; text-transform: uppercase; color: var(--gold); margin-bottom: 14px; display: flex; align-items: center; gap: 8px; }
+.sb-title::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+
+.sb-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.sb-label { font-size: 0.78rem; color: var(--muted); min-width: 90px; }
+.sb-bar { flex: 1; height: 8px; background: var(--border); border-radius: 4px; overflow: hidden; }
+.sb-fill { height: 100%; border-radius: 4px; transition: width 0.5s ease; }
+.sb-val { font-size: 0.8rem; font-weight: 700; color: #fff; min-width: 32px; text-align: right; }
+
+.panel-actions { display: grid; gap: 10px; margin-bottom: 24px; }
+.panel-action-btn {
+  width: 100%; padding: 12px 16px; border-radius: 10px; border: 1px solid var(--border);
+  background: var(--card); color: var(--text); font-family: 'Mulish', sans-serif;
+  font-size: 0.85rem; font-weight: 700; cursor: pointer; transition: all 0.15s; text-align: left;
+  display: flex; align-items: center; gap: 10px;
+}
+.panel-action-btn:hover { border-color: var(--gold); color: var(--gold); }
+.panel-action-btn.primary { background: var(--gold); color: #000; border-color: var(--gold); }
+.panel-action-btn.primary:hover { opacity: 0.85; }
+.panel-action-btn.danger { border-color: rgba(224,92,92,0.4); }
+.panel-action-btn.danger:hover { border-color: var(--red); color: var(--red); }
+
+.info-row { display: flex; justify-content: space-between; align-items: flex-start; padding: 8px 0; border-bottom: 1px solid var(--border); }
+.info-row:last-child { border-bottom: none; }
+.ir-label { font-size: 0.75rem; color: var(--muted); }
+.ir-val { font-size: 0.82rem; color: var(--text); text-align: right; max-width: 220px; word-break: break-all; }
+
+/* Outreach modal */
+.modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 100; display: flex; align-items: center; justify-content: center; }
+.modal-overlay.hidden { display: none; }
+.modal { background: var(--card); border: 1px solid var(--border); border-radius: 16px; width: 520px; max-width: 95vw; max-height: 80vh; overflow-y: auto; }
+.modal-header { padding: 20px 24px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
+.modal-title { font-family: 'DM Serif Display', serif; font-size: 1.2rem; color: #fff; }
+.modal-body { padding: 24px; }
+.modal-footer { padding: 16px 24px; border-top: 1px solid var(--border); display: flex; gap: 10px; justify-content: flex-end; }
+
+.form-group { margin-bottom: 16px; }
+.form-label { display: block; font-size: 0.75rem; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 6px; }
+.form-input { width: 100%; padding: 10px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-family: 'Mulish', sans-serif; font-size: 0.88rem; }
+.form-input:focus { outline: none; border-color: var(--gold); }
+.form-textarea { min-height: 140px; resize: vertical; font-size: 0.82rem; line-height: 1.6; }
+
+.btn { padding: 10px 20px; border-radius: 8px; border: 1px solid var(--border); font-family: 'Mulish', sans-serif; font-size: 0.82rem; font-weight: 700; cursor: pointer; transition: opacity 0.12s; }
+.btn-primary { background: var(--gold); color: #000; border-color: var(--gold); }
+.btn-primary:hover { opacity: 0.85; }
+.btn-ghost { background: transparent; color: var(--muted); }
+.btn-ghost:hover { color: var(--text); }
+
+.toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); padding: 12px 24px; border-radius: 10px; font-size: 0.85rem; font-weight: 600; z-index: 200; opacity: 0; transition: opacity 0.3s; pointer-events: none; }
+.toast.show { opacity: 1; }
+.toast.success { background: var(--green); color: #000; }
+.toast.error { background: var(--red); color: #fff; }
+.toast.info { background: var(--gold); color: #000; }
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+/* Loading spinner */
+.spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid rgba(255,255,255,0.2); border-top-color: #fff; border-radius: 50%; animation: spin 0.6s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+
+<div class="app">
+
+<!-- TOP BAR -->
+<header class="topbar">
+  <div class="logo">Domain <em>Flipper</em></div>
+  <div class="topbar-stats">
+    <div class="ts"><span class="ts-val" id="stat-total">—</span><span class="ts-label">Domains</span></div>
+    <div class="ts"><span class="ts-val" id="stat-available">—</span><span class="ts-label">Available</span></div>
+    <div class="ts"><span class="ts-val" id="stat-purchased">—</span><span class="ts-label">Owned</span></div>
+    <div class="ts"><span class="ts-val" id="stat-sold">—</span><span class="ts-label">Sold</span></div>
+  </div>
+  <div class="spacer"></div>
+  <span class="scan-status" id="scan-status-text"></span>
+  <button class="scan-btn" id="scan-btn" onclick="triggerScan(false)">▶ Scan Now</button>
+  <button class="scan-btn" style="background:var(--blue);margin-left:6px" id="demo-btn" onclick="triggerScan(true)">Demo Data</button>
+</header>
+
+<!-- MAIN LIST -->
+<main class="main">
+  <div class="filters">
+    <span class="filter-label">Filter:</span>
+    <select class="filter-select" id="f-status" onchange="loadDomains()">
+      <option value="">All statuses</option>
+      <option value="available">Available</option>
+      <option value="watchlist">Watchlist</option>
+      <option value="purchased">Purchased</option>
+      <option value="sold">Sold</option>
+      <option value="passed">Passed</option>
+    </select>
+    <select class="filter-select" id="f-tld" onchange="loadDomains()">
+      <option value="">All TLDs</option>
+      <option value="com">.com</option>
+      <option value="io">.io</option>
+      <option value="ai">.ai</option>
+      <option value="net">.net</option>
+      <option value="org">.org</option>
+    </select>
+    <input type="number" class="filter-input" id="f-score" placeholder="Min score" min="0" max="100" style="width:110px" onchange="loadDomains()">
+    <select class="filter-select" id="f-sort" onchange="loadDomains()">
+      <option value="score">Sort: Score</option>
+      <option value="value">Sort: Value</option>
+      <option value="age">Sort: Age</option>
+      <option value="discovered">Sort: Newest</option>
+    </select>
+  </div>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th onclick="setSort('score')">Domain</th>
+          <th onclick="setSort('score')">Score ↕</th>
+          <th onclick="setSort('value')">Est. Value ↕</th>
+          <th>Age</th>
+          <th>Backlinks</th>
+          <th>Status</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="domain-table-body">
+        <tr><td colspan="7" class="empty-state">
+          <h3>No domains yet</h3>
+          <p>Click <strong>Demo Data</strong> to load test domains, or <strong>Scan Now</strong> to scrape live data.</p>
+        </td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="pagination" id="pagination" style="display:none">
+    <button class="page-btn" id="prev-btn" onclick="changePage(-1)">← Prev</button>
+    <span class="page-info" id="page-info">Page 1</span>
+    <button class="page-btn" id="next-btn" onclick="changePage(1)">Next →</button>
+  </div>
+</main>
+
+<!-- DETAIL PANEL -->
+<aside class="panel hidden" id="detail-panel">
+  <div class="panel-header">
+    <div>
+      <div class="panel-domain" id="pd-name">—</div>
+      <div class="panel-sub" id="pd-sub">Loading…</div>
+    </div>
+    <button class="panel-close" onclick="closePanel()">✕</button>
+  </div>
+  <div class="panel-body">
+    <div class="panel-value">
+      <span class="pv-num" id="pd-value">$—</span>
+      <span class="pv-label">Estimated resale value</span>
+    </div>
+
+    <div class="score-breakdown">
+      <div class="sb-title">Score Breakdown</div>
+      <div id="sb-rows"></div>
+    </div>
+
+    <div class="panel-actions" id="pd-actions"></div>
+
+    <div class="sb-title" style="margin-bottom:14px">Domain Info</div>
+    <div id="pd-info-rows"></div>
+  </div>
+</aside>
+
+</div><!-- end .app -->
+
+<!-- OUTREACH MODAL -->
+<div class="modal-overlay hidden" id="outreach-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <span class="modal-title">Contact Original Owner</span>
+      <button class="panel-close" onclick="closeOutreachModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label class="form-label">Domain</label>
+        <input class="form-input" id="m-domain" readonly>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Owner Email</label>
+        <input class="form-input" id="m-email" type="email" placeholder="will be looked up via WHOIS…">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Your Asking Price (USD)</label>
+        <input class="form-input" id="m-price" type="number" placeholder="e.g. 500" min="10">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Template</label>
+        <select class="form-input" id="m-template">
+          <option value="initial_offer">Initial Offer</option>
+          <option value="follow_up">Follow-up</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Email Preview</label>
+        <textarea class="form-input form-textarea" id="m-preview" readonly placeholder="Preview will appear here after WHOIS lookup…"></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeOutreachModal()">Cancel</button>
+      <button class="btn btn-ghost" onclick="doWhoisLookup()" style="border-color:var(--blue);color:var(--blue)">🔍 WHOIS Lookup</button>
+      <button class="btn btn-primary" onclick="sendOutreach()">✉ Send Email</button>
+    </div>
+  </div>
+</div>
+
+<!-- BUY CONFIRM MODAL -->
+<div class="modal-overlay hidden" id="buy-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <span class="modal-title">Confirm Purchase</span>
+      <button class="panel-close" onclick="closeBuyModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <p style="color:#aaa;margin-bottom:16px">You are about to register this domain via Namecheap.</p>
+      <div class="form-group">
+        <label class="form-label">Domain</label>
+        <input class="form-input" id="buy-domain" readonly>
+      </div>
+      <div id="buy-sandbox-warn" class="form-group" style="padding:12px;background:var(--gold-dim);border-left:2px solid var(--gold);border-radius:6px;font-size:0.84rem;color:#aaa">
+        <strong style="color:var(--gold)">Sandbox Mode</strong> — No real money will be spent. Set <code>NAMECHEAP_SANDBOX=false</code> in .env for live purchases.
+      </div>
+      <div id="buy-live-warn" class="form-group" style="display:none;padding:12px;background:var(--red-dim);border-left:2px solid var(--red);border-radius:6px;font-size:0.84rem;color:#aaa">
+        <strong style="color:var(--red)">⚠ LIVE MODE</strong> — This will charge ~$10.98 to your Namecheap account.
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeBuyModal()">Cancel</button>
+      <button class="btn btn-primary" id="buy-confirm-btn" onclick="confirmBuy()">Buy Domain</button>
+    </div>
+  </div>
+</div>
+
+<!-- TOAST -->
+<div class="toast" id="toast"></div>
+
+<script>
+const API = '';  // same origin
+
+let currentDomain = null;
+let currentPage = 1;
+let totalPages = 1;
+
+// ── Utilities ─────────────────────────────────────────────────────────────────
+
+function scoreColor(s) {
+  if (s >= 70) return '#4caf7d';
+  if (s >= 50) return '#d4a843';
+  return '#e05c5c';
+}
+
+function fmt(val, fallback = '—') {
+  return val !== null && val !== undefined ? val : fallback;
+}
+
+function fmtAge(years) {
+  if (years == null) return '—';
+  if (years < 1) return `${Math.round(years * 12)}mo`;
+  return `${years.toFixed(1)}y`;
+}
+
+function fmtValue(v) {
+  if (!v) return '$—';
+  if (v >= 1000) return `$${(v/1000).toFixed(1)}k`;
+  return `$${v}`;
+}
+
+function showToast(msg, type = 'info') {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = `toast ${type} show`;
+  setTimeout(() => t.classList.remove('show'), 3000);
+}
+
+// ── Scan ──────────────────────────────────────────────────────────────────────
+
+async function triggerScan(demo = false) {
+  const btn = document.getElementById(demo ? 'demo-btn' : 'scan-btn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Scanning…';
+  document.getElementById('scan-status-text').textContent = 'Scanning…';
+  try {
+    const r = await fetch(`${API}/api/scan/trigger?demo=${demo}`, { method: 'POST' });
+    const d = await r.json();
+    showToast(d.message || 'Scan started', 'info');
+    // Poll until done
+    setTimeout(pollScan, 2000);
+  } catch (e) {
+    showToast('Failed to start scan', 'error');
+    btn.disabled = false;
+    btn.textContent = demo ? 'Demo Data' : '▶ Scan Now';
+  }
+}
+
+async function pollScan() {
+  try {
+    const r = await fetch(`${API}/api/scan/status`);
+    const d = await r.json();
+    updateStats(d);
+    if (d.scanning) {
+      setTimeout(pollScan, 2000);
+    } else {
+      const scanBtn = document.getElementById('scan-btn');
+      const demoBtn = document.getElementById('demo-btn');
+      scanBtn.disabled = false; scanBtn.textContent = '▶ Scan Now';
+      demoBtn.disabled = false; demoBtn.textContent = 'Demo Data';
+      document.getElementById('scan-status-text').textContent =
+        d.last_scan ? `Last scan: ${d.last_scan.domains_saved} saved` : '';
+      showToast(`Scan complete — ${d.total_domains} domains`, 'success');
+      loadDomains();
+    }
+  } catch (e) {
+    setTimeout(pollScan, 5000);
+  }
+}
+
+function updateStats(d) {
+  document.getElementById('stat-total').textContent = d.total_domains ?? '—';
+  document.getElementById('stat-available').textContent = d.by_status?.available ?? '—';
+  document.getElementById('stat-purchased').textContent = d.by_status?.purchased ?? '—';
+  document.getElementById('stat-sold').textContent = d.by_status?.sold ?? '—';
+}
+
+// ── Domains List ──────────────────────────────────────────────────────────────
+
+function setSort(s) {
+  document.getElementById('f-sort').value = s;
+  loadDomains();
+}
+
+async function loadDomains(page = currentPage) {
+  const status = document.getElementById('f-status').value;
+  const tld = document.getElementById('f-tld').value;
+  const minScore = document.getElementById('f-score').value || 0;
+  const sort = document.getElementById('f-sort').value;
+
+  const params = new URLSearchParams({
+    page, per_page: 50, sort, min_score: minScore,
+    ...(status && { status }),
+    ...(tld && { tld }),
+  });
+
+  try {
+    const r = await fetch(`${API}/api/domains?${params}`);
+    const d = await r.json();
+    renderTable(d.domains);
+    totalPages = Math.ceil(d.total / 50);
+    currentPage = page;
+    document.getElementById('page-info').textContent =
+      `Page ${page} of ${totalPages} (${d.total} domains)`;
+    document.getElementById('pagination').style.display = d.total > 50 ? 'flex' : 'none';
+    document.getElementById('prev-btn').disabled = page <= 1;
+    document.getElementById('next-btn').disabled = page >= totalPages;
+  } catch (e) {
+    console.error('loadDomains error', e);
+  }
+
+  // Also refresh stats
+  try {
+    const sr = await fetch(`${API}/api/scan/status`);
+    updateStats(await sr.json());
+  } catch {}
+}
+
+function changePage(dir) {
+  loadDomains(currentPage + dir);
+}
+
+function renderTable(domains) {
+  const tbody = document.getElementById('domain-table-body');
+  if (!domains.length) {
+    tbody.innerHTML = `<tr><td colspan="7" class="empty-state">
+      <h3>No domains found</h3>
+      <p>Try <strong>Demo Data</strong> to load sample domains, or adjust your filters.</p>
+    </td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = domains.map(d => {
+    const color = scoreColor(d.score);
+    const statusClass = `s-${d.status}`;
+    const isBuyable = d.status === 'available';
+
+    return `<tr onclick="openPanel(${d.id})" id="row-${d.id}" ${currentDomain?.id === d.id ? 'class="selected"' : ''}>
+      <td>
+        <div class="domain-name">${d.sld}</div>
+        <div class="domain-tld">.${d.tld}</div>
+      </td>
+      <td>
+        <div class="score-cell">
+          <div class="score-bar"><div class="score-fill" style="width:${d.score}%;background:${color}"></div></div>
+          <span class="score-num" style="color:${color}">${d.score}</span>
+        </div>
+      </td>
+      <td><span class="value-cell">${fmtValue(d.estimated_value)}</span></td>
+      <td class="age-cell">${fmtAge(d.domain_age_years)}</td>
+      <td class="bl-cell">${fmt(d.backlink_count)}</td>
+      <td><span class="status-badge ${statusClass}">${d.status}</span></td>
+      <td onclick="event.stopPropagation()">
+        ${isBuyable ? `<button class="action-btn buy" onclick="openBuyModal(${d.id},'${d.name}')">Buy</button>` : ''}
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+// ── Detail Panel ──────────────────────────────────────────────────────────────
+
+async function openPanel(id) {
+  // Highlight row
+  document.querySelectorAll('tr.selected').forEach(r => r.classList.remove('selected'));
+  const row = document.getElementById(`row-${id}`);
+  if (row) row.classList.add('selected');
+
+  document.getElementById('detail-panel').classList.remove('hidden');
+  document.getElementById('pd-name').textContent = '…';
+  document.getElementById('pd-sub').textContent = 'Loading';
+
+  try {
+    const r = await fetch(`${API}/api/domains/${id}`);
+    const d = await r.json();
+    currentDomain = d;
+    renderPanel(d);
+  } catch (e) {
+    document.getElementById('pd-sub').textContent = 'Error loading domain';
+  }
+}
+
+function closePanel() {
+  document.getElementById('detail-panel').classList.add('hidden');
+  document.querySelectorAll('tr.selected').forEach(r => r.classList.remove('selected'));
+  currentDomain = null;
+}
+
+function renderPanel(d) {
+  document.getElementById('pd-name').textContent = d.name;
+  document.getElementById('pd-sub').textContent =
+    `Score ${d.score}/100 · Source: ${d.source}`;
+  document.getElementById('pd-value').textContent = fmtValue(d.estimated_value);
+
+  // Score breakdown bars
+  const breakdown = d.score_breakdown || {};
+  const signals = [
+    { key: 'tld_score', label: 'TLD' },
+    { key: 'length_score', label: 'Length' },
+    { key: 'word_score', label: 'Keywords' },
+    { key: 'brand_score', label: 'Brandability' },
+    { key: 'backlink_score', label: 'Backlinks' },
+    { key: 'age_score', label: 'Age' },
+    { key: 'keyword_score', label: 'Commercial KW' },
+  ];
+
+  document.getElementById('sb-rows').innerHTML = signals.map(sig => {
+    const val = breakdown[sig.key] ?? 0;
+    const color = scoreColor(val);
+    return `<div class="sb-row">
+      <span class="sb-label">${sig.label}</span>
+      <div class="sb-bar"><div class="sb-fill" style="width:${val}%;background:${color}"></div></div>
+      <span class="sb-val">${val}</span>
+    </div>`;
+  }).join('');
+
+  // Actions
+  const actions = document.getElementById('pd-actions');
+  let btns = '';
+  if (d.status === 'available') {
+    btns += `<button class="panel-action-btn primary" onclick="openBuyModal(${d.id},'${d.name}')">💳 Buy for ~$10.98</button>`;
+    btns += `<button class="panel-action-btn" onclick="setStatus(${d.id},'watchlist')">👁 Add to Watchlist</button>`;
+    btns += `<button class="panel-action-btn danger" onclick="setStatus(${d.id},'passed')">✕ Pass</button>`;
+  } else if (d.status === 'watchlist') {
+    btns += `<button class="panel-action-btn primary" onclick="openBuyModal(${d.id},'${d.name}')">💳 Buy for ~$10.98</button>`;
+    btns += `<button class="panel-action-btn" onclick="setStatus(${d.id},'available')">↩ Unwatch</button>`;
+  } else if (d.status === 'purchased') {
+    btns += `<button class="panel-action-btn" onclick="openOutreachModal(${d.id})">✉ Contact Original Owner</button>`;
+    btns += `<button class="panel-action-btn" onclick="setStatus(${d.id},'sold')">✓ Mark as Sold</button>`;
+  }
+  actions.innerHTML = btns;
+
+  // Info rows
+  const infoData = [
+    { label: 'Full domain', val: d.name },
+    { label: 'TLD', val: `.${d.tld}` },
+    { label: 'Domain age', val: fmtAge(d.domain_age_years) },
+    { label: 'Backlinks', val: fmt(d.backlink_count) },
+    { label: 'Owner email', val: fmt(d.owner_email) },
+    { label: 'Owner name', val: fmt(d.owner_name) },
+    { label: 'Registrar', val: fmt(d.registrar) },
+    { label: 'Discovered', val: d.discovered_at ? new Date(d.discovered_at).toLocaleDateString() : '—' },
+    { label: 'Purchase price', val: d.purchase_price ? `$${d.purchase_price}` : '—' },
+  ];
+
+  document.getElementById('pd-info-rows').innerHTML = infoData.map(r =>
+    `<div class="info-row"><span class="ir-label">${r.label}</span><span class="ir-val">${r.val}</span></div>`
+  ).join('');
+}
+
+async function setStatus(id, status) {
+  try {
+    await fetch(`${API}/api/domains/${id}/status?status=${status}`, { method: 'PATCH' });
+    showToast(`Status updated to ${status}`, 'success');
+    loadDomains(currentPage);
+    if (currentDomain?.id === id) openPanel(id);
+  } catch (e) {
+    showToast('Failed to update status', 'error');
+  }
+}
+
+// ── Buy Modal ─────────────────────────────────────────────────────────────────
+
+let buyDomainId = null;
+
+function openBuyModal(id, name) {
+  buyDomainId = id;
+  document.getElementById('buy-domain').value = name;
+  document.getElementById('buy-modal').classList.remove('hidden');
+}
+
+function closeBuyModal() {
+  document.getElementById('buy-modal').classList.add('hidden');
+  buyDomainId = null;
+}
+
+async function confirmBuy() {
+  if (!buyDomainId) return;
+  const btn = document.getElementById('buy-confirm-btn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Registering…';
+
+  try {
+    const r = await fetch(`${API}/api/purchase/${buyDomainId}/buy`, { method: 'POST' });
+    const d = await r.json();
+    if (d.success) {
+      showToast(`✓ ${d.domain} registered successfully!`, 'success');
+      closeBuyModal();
+      loadDomains(currentPage);
+      if (currentDomain?.id === buyDomainId) openPanel(buyDomainId);
+    } else {
+      showToast(`Purchase failed: ${d.error}`, 'error');
+    }
+  } catch (e) {
+    showToast('Purchase request failed', 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Buy Domain';
+  }
+}
+
+// ── Outreach Modal ────────────────────────────────────────────────────────────
+
+let outreachDomainId = null;
+
+function openOutreachModal(id) {
+  outreachDomainId = id;
+  if (currentDomain) {
+    document.getElementById('m-domain').value = currentDomain.name;
+    document.getElementById('m-email').value = currentDomain.owner_email || '';
+    document.getElementById('m-price').value = Math.round((currentDomain.estimated_value || 200) * 0.4);
+  }
+  document.getElementById('m-preview').value = '';
+  document.getElementById('outreach-modal').classList.remove('hidden');
+}
+
+function closeOutreachModal() {
+  document.getElementById('outreach-modal').classList.add('hidden');
+  outreachDomainId = null;
+}
+
+async function doWhoisLookup() {
+  if (!outreachDomainId) return;
+  document.getElementById('m-preview').value = 'Looking up WHOIS…';
+  try {
+    const r = await fetch(`${API}/api/outreach/${outreachDomainId}/whois`);
+    const d = await r.json();
+    if (d.registrant_email) {
+      document.getElementById('m-email').value = d.registrant_email;
+      showToast('WHOIS email found: ' + d.registrant_email, 'success');
+    } else {
+      showToast('No email in WHOIS (domain may have privacy protection)', 'info');
+    }
+    document.getElementById('m-preview').value =
+      `Registrant: ${d.registrant_name || '—'}\nEmail: ${d.registrant_email || '—'}\nRegistrar: ${d.registrar || '—'}\nCreated: ${d.creation_date || '—'}`;
+  } catch (e) {
+    showToast('WHOIS lookup failed', 'error');
+    document.getElementById('m-preview').value = '';
+  }
+}
+
+async function sendOutreach() {
+  if (!outreachDomainId) return;
+  const email = document.getElementById('m-email').value.trim();
+  const price = parseFloat(document.getElementById('m-price').value);
+  const template = document.getElementById('m-template').value;
+
+  if (!price || price < 1) { showToast('Enter a valid asking price', 'error'); return; }
+
+  try {
+    const r = await fetch(`${API}/api/outreach/${outreachDomainId}/send`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ asking_price: price, template, to_email: email || undefined }),
+    });
+    const d = await r.json();
+    if (d.sent) {
+      showToast('Email sent successfully!', 'success');
+      closeOutreachModal();
+    } else {
+      // Show preview in textarea
+      document.getElementById('m-preview').value = d.preview || d.error || 'Preview unavailable';
+      showToast(d.error || 'Email not sent (preview shown)', 'info');
+    }
+  } catch (e) {
+    showToast('Failed to send email', 'error');
+  }
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+
+async function init() {
+  await loadDomains();
+}
+
+init();
+</script>
+</body>
+</html>
