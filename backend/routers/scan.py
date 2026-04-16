@@ -59,13 +59,25 @@ async def _run_scan(use_demo: bool = False):
             if not name or "." not in name:
                 continue
 
-            # Skip if already in DB
-            existing = db.query(Domain).filter(Domain.id == Domain.id, Domain.name == name).first()
-            if existing:
-                continue
-
             age = rd.get("domain_age_years")
             bl = rd.get("backlink_count")
+
+            # If already in DB, refresh backlink + age data then rescore
+            existing = db.query(Domain).filter(Domain.name == name).first()
+            if existing:
+                changed = False
+                if bl is not None and existing.backlink_count != bl:
+                    existing.backlink_count = bl
+                    changed = True
+                if age is not None and existing.domain_age_years != age:
+                    existing.domain_age_years = age
+                    changed = True
+                if changed:
+                    new_score = score_domain(name, age_years=existing.domain_age_years, backlink_count=existing.backlink_count)
+                    existing.score = new_score["total_score"]
+                    existing.estimated_value = new_score["estimated_value"]
+                    existing.score_breakdown = json.dumps({k: v for k, v in new_score.items() if k.endswith("_score")})
+                continue
 
             result = score_domain(name, age_years=age, backlink_count=bl)
 

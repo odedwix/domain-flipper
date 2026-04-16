@@ -56,14 +56,26 @@ def _parse_int(val: str) -> Optional[int]:
         return None
 
 
+def _parse_leading_int(text: str) -> Optional[int]:
+    """Extract the leading integer from a string like '6Majestic.com SEOkic' → 6."""
+    m = re.match(r"^\s*(\d+)", text)
+    if m:
+        return int(m.group(1))
+    return None
+
+
 def _parse_table(html: str) -> list[dict]:
-    """Parse the HTML table on expireddomains.net and return list of domain dicts."""
+    """Parse the HTML table on expireddomains.net and return list of domain dicts.
+
+    Table columns (as of 2025):
+      0: Domain, 1: BL (backlinks), 2: DP, 3: ABY (birth year), 4: ACR,
+      5: Dmoz, 6-9: C/N/O/D availability, 10: Reg, 11: RDT, 12: Dropped, 13: Status
+    """
     soup = BeautifulSoup(html, "lxml")
     results = []
 
     table = soup.find("table", class_="base1")
     if not table:
-        # Try alternate selector
         table = soup.find("table", {"id": re.compile(r"table_")})
     if not table:
         return results
@@ -74,32 +86,27 @@ def _parse_table(html: str) -> list[dict]:
         if len(cols) < 5:
             continue
 
-        # Column 0: domain name (contains an <a> tag)
-        domain_td = cols[0]
-        a_tag = domain_td.find("a")
+        # Column 0: domain name (inside an <a> tag)
+        a_tag = cols[0].find("a")
         if not a_tag:
             continue
         domain_name = a_tag.text.strip().lower()
         if not domain_name or "." not in domain_name:
             continue
 
-        # Column 1 or 2: backlink count — varies by list type
-        # Try to extract a number from columns 1–3
-        bl = None
-        for i in range(1, min(5, len(cols))):
-            bl = _parse_int(cols[i].text)
-            if bl is not None:
-                break
+        # Column 1: BL — text like "6Majestic.com SEOkic", extract leading int
+        bl = _parse_leading_int(cols[1].text) if len(cols) > 1 else None
 
-        # Birth date — look for date-like pattern in any col
+        # Column 3: ABY — birth year as 4-digit integer, e.g. "2013"
         age_years = None
-        birth_str = None
-        for col in cols:
-            text = col.text.strip()
-            if re.match(r"\d{4}-\d{2}-\d{2}", text):
-                birth_str = text
-                age_years = _parse_age(text)
-                break
+        if len(cols) > 3:
+            aby_text = cols[3].text.strip()
+            m = re.match(r"^(\d{4})$", aby_text)
+            if m:
+                birth_year = int(m.group(1))
+                current_year = date.today().year
+                if 1990 <= birth_year <= current_year:
+                    age_years = round(current_year - birth_year + (date.today().month - 1) / 12, 1)
 
         results.append({
             "name": domain_name,
