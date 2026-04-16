@@ -217,6 +217,7 @@ tr.selected td { background: var(--gold-dim); }
   <button class="scan-btn" style="background:var(--blue);margin-left:6px" id="demo-btn" onclick="triggerScan(true)">Demo Data</button>
   <button class="scan-btn" style="background:#7c3aed;margin-left:6px" id="enrich-btn" onclick="enrichPageRank()">⚡ Enrich PageRank</button>
   <button class="scan-btn" style="background:#991b1b;margin-left:6px" id="lapse-btn" onclick="runLapseScan()">🔥 Lapse Scan</button>
+  <button class="scan-btn" style="background:#065f46;margin-left:6px" id="verify-btn" onclick="verifyAvailable()">✓ Verify Available</button>
   <button class="scan-btn" style="background:var(--surface);border:1px solid var(--border);color:var(--text);margin-left:6px" onclick="openQuickAnalyze()">🔍 Quick Analyze</button>
   <button class="scan-btn" style="background:var(--surface);border:1px solid var(--border);color:var(--text);margin-left:6px" onclick="openPortfolioHealth()">📊 Portfolio</button>
 </header>
@@ -539,6 +540,49 @@ async function pollEnrich() {
   }
 }
 
+async function verifyAvailable() {
+  const btn = document.getElementById('verify-btn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Checking…';
+  try {
+    const r = await fetch(`${API}/api/purchase/check-all`, { method: 'POST' });
+    const d = await r.json();
+    if (d.status === 'already_running') {
+      showToast('Availability check already running', 'info');
+    } else {
+      showToast('Checking availability against Namecheap — taken domains will be removed', 'info');
+      setTimeout(pollVerify, 3000);
+      return;
+    }
+  } catch (e) {
+    showToast('Failed to start availability check', 'error');
+  }
+  btn.disabled = false;
+  btn.innerHTML = '✓ Verify Available';
+}
+
+async function pollVerify() {
+  try {
+    const r = await fetch(`${API}/api/purchase/check-all/status`);
+    const d = await r.json();
+    const btn = document.getElementById('verify-btn');
+    if (d.checking) {
+      const p = d.progress;
+      const pct = p.total ? Math.round(p.done / p.total * 100) : 0;
+      btn.innerHTML = `<span class="spinner"></span> ${pct}% — ${p.removed} removed`;
+      setTimeout(pollVerify, 2000);
+    } else {
+      btn.disabled = false;
+      btn.innerHTML = '✓ Verify Available';
+      const removed = d.progress?.removed ?? 0;
+      showToast(`Done — removed ${removed} taken domains`, removed > 0 ? 'success' : 'info');
+      loadDomains(1);
+    }
+  } catch (e) {
+    setTimeout(pollVerify, 4000);
+  }
+}
+
 async function runLapseScan() {
   const btn = document.getElementById('lapse-btn');
   btn.disabled = true;
@@ -813,10 +857,19 @@ async function setStatus(id, status) {
 
 let buyDomainId = null;
 
-function openBuyModal(id, name) {
+async function openBuyModal(id, name) {
   buyDomainId = id;
   document.getElementById('buy-domain').value = name;
   document.getElementById('buy-modal').classList.remove('hidden');
+
+  // Check live vs sandbox from server
+  try {
+    const r = await fetch(`${API}/api/settings`);
+    const s = await r.json();
+    const isSandbox = s.namecheap_sandbox;
+    document.getElementById('buy-sandbox-warn').style.display = isSandbox ? '' : 'none';
+    document.getElementById('buy-live-warn').style.display = isSandbox ? 'none' : '';
+  } catch {}
 }
 
 function closeBuyModal() {

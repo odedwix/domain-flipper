@@ -86,7 +86,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# ── Settings endpoint ─────────────────────────────────────────────────────────
+from fastapi import APIRouter as _AR
+_settings_router = _AR(prefix="/api/settings", tags=["settings"])
+
+@_settings_router.get("")
+def get_public_settings():
+    return {"namecheap_sandbox": settings.namecheap_sandbox}
+
 # ── API Routers ────────────────────────────────────────────────────────────────
+app.include_router(_settings_router)
 app.include_router(domains.router)
 app.include_router(scan.router)
 app.include_router(purchase.router)
