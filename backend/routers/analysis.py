@@ -8,6 +8,7 @@ from database import get_db
 from models import Domain
 from valuation.recommendation import analyze, portfolio_health
 from valuation.comparables import get_comparable_sales
+from valuation.signals import enrich_domain, signals_to_score_adjustments
 from datetime import datetime
 
 router = APIRouter(prefix="/api/analyze", tags=["analysis"])
@@ -27,8 +28,12 @@ async def analyze_domain(
 
     domains_owned = db.query(Domain).filter(Domain.status == "purchased").count()
 
-    # Get comparable sales
-    comps = await get_comparable_sales(d.name)
+    # Run comparables + enrichment signals in parallel
+    comps, enrichment = await __import__('asyncio').gather(
+        get_comparable_sales(d.name),
+        enrich_domain(d.name, expiry_date=d.whois_raw and __import__('json').loads(d.whois_raw or '{}').get('expiration_date')),
+    )
+    adjustments = signals_to_score_adjustments(enrichment)
 
     result = analyze(
         domain=d.name,
@@ -39,7 +44,17 @@ async def analyze_domain(
         weekly_budget_remaining=weekly_budget,
         domains_owned=domains_owned,
     )
+
+    # Apply signal adjustments to score and decision
+    result["score"] = round(min(100, max(0, result["score"] + adjustments["net_adjustment"])), 1)
+    if adjustments["hard_stop"]:
+        result["decision"] = "SKIP"
+        result["confidence"] = 99
+        result["reason"] = adjustments["flags"][0]
+
     result["comparables"] = comps
+    result["enrichment"]  = enrichment
+    result["adjustments"] = adjustments
     return result
 
 
@@ -50,8 +65,14 @@ async def quick_analyze(
     db: Session = Depends(get_db),
 ):
     """Analyze any domain name — doesn't need to be in the DB yet."""
+    import asyncio
     domains_owned = db.query(Domain).filter(Domain.status == "purchased").count()
-    comps = await get_comparable_sales(domain)
+
+    comps, enrichment = await asyncio.gather(
+        get_comparable_sales(domain),
+        enrich_domain(domain),
+    )
+    adjustments = signals_to_score_adjustments(enrichment)
 
     result = analyze(
         domain=domain,
@@ -59,7 +80,16 @@ async def quick_analyze(
         weekly_budget_remaining=weekly_budget,
         domains_owned=domains_owned,
     )
-    result["comparables"] = comps
+
+    result["score"] = round(min(100, max(0, result["score"] + adjustments["net_adjustment"])), 1)
+    if adjustments["hard_stop"]:
+        result["decision"] = "SKIP"
+        result["confidence"] = 99
+        result["reason"] = adjustments["flags"][0]
+
+    result["comparables"]  = comps
+    result["enrichment"]   = enrichment
+    result["adjustments"]  = adjustments
     return result
 
 

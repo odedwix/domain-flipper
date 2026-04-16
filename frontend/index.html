@@ -901,6 +901,7 @@ async function loadRecommendation(domainId, weeklyBudget = 50) {
     const r = await fetch(`${API}/api/analyze/${domainId}?weekly_budget=${weeklyBudget}`);
     const d = await r.json();
     renderRecommendation(d);
+    renderEnrichment(d);
   } catch (e) {
     document.getElementById('pd-rec-wrap').innerHTML =
       '<div style="color:var(--dim);font-size:0.8rem;padding:8px 0">Analysis unavailable</div>';
@@ -969,6 +970,98 @@ function renderRecommendation(d) {
         ${noteHtml}
       </div>`;
   }
+}
+
+function renderEnrichment(d) {
+  const e = d.enrichment;
+  const adj = d.adjustments;
+  if (!e) return;
+
+  const wb = e.wayback || {};
+  const sb = e.safe_browsing || {};
+  const kw = e.keyword_metrics || {};
+  const drop = e.drop_info || {};
+  const tm = e.trademark || {};
+  const sim = e.similar_domains || {};
+
+  // Flag pills from adjustments
+  const flagPills = (adj?.flags || []).map(f => {
+    const isGood = !f.startsWith('TRADEMARK') && !f.startsWith('MALWARE') && !f.startsWith('No ');
+    const color = isGood ? 'var(--green)' : 'var(--red)';
+    const bg = isGood ? 'var(--green-dim)' : 'var(--red-dim)';
+    return `<div style="padding:7px 12px;background:${bg};border-left:2px solid ${color};border-radius:6px;margin-bottom:6px;font-size:0.78rem;color:#ccc">${f}</div>`;
+  }).join('');
+
+  // Drop date section
+  const dropHtml = drop.drop_date ? `
+    <div class="info-row">
+      <span class="ir-label">Drop date</span>
+      <span class="ir-val" style="color:${drop.phase==='dropped'?'var(--green)':drop.phase==='pending_delete'?'var(--gold)':'var(--muted)'}">${drop.drop_date}</span>
+    </div>
+    <div class="info-row">
+      <span class="ir-label">Phase</span>
+      <span class="ir-val">${drop.phase_label || drop.phase}</span>
+    </div>` : '';
+
+  // Wayback section
+  const wbHtml = `
+    <div class="info-row">
+      <span class="ir-label">Wayback snapshots</span>
+      <span class="ir-val">${wb.snapshot_count ?? '—'}</span>
+    </div>
+    <div class="info-row">
+      <span class="ir-label">First seen</span>
+      <span class="ir-val">${wb.first_seen ?? '—'}</span>
+    </div>
+    <div class="info-row">
+      <span class="ir-label">Last seen</span>
+      <span class="ir-val">${wb.last_seen ?? '—'}</span>
+    </div>`;
+
+  // Safe browsing
+  const sbColor = sb.safe === true ? 'var(--green)' : sb.safe === false ? 'var(--red)' : 'var(--muted)';
+  const sbText  = sb.safe === true ? '✓ Clean' : sb.safe === false ? `⚠ ${sb.threats?.join(', ')}` : 'Not checked';
+  const sbHtml  = `<div class="info-row"><span class="ir-label">Safe Browsing</span><span class="ir-val" style="color:${sbColor}">${sbText}</span></div>`;
+
+  // Keyword metrics
+  const kwHtml = kw.search_volume != null ? `
+    <div class="info-row">
+      <span class="ir-label">Monthly searches</span>
+      <span class="ir-val">${(kw.search_volume||0).toLocaleString()}</span>
+    </div>
+    <div class="info-row">
+      <span class="ir-label">Google CPC</span>
+      <span class="ir-val" style="color:var(--gold)">$${kw.cpc ?? '—'}</span>
+    </div>` : `<div class="info-row"><span class="ir-label">Keyword data</span><span class="ir-val" style="color:var(--dim)">Add DataForSEO key</span></div>`;
+
+  // Trademark
+  const tmColor = tm.likely_trademarked ? 'var(--red)' : 'var(--green)';
+  const tmText  = tm.likely_trademarked ? `⚠ Possible trademark (${tm.matched_brand})` : '✓ No known trademark conflict';
+  const tmHtml  = `<div class="info-row">
+    <span class="ir-label">Trademark</span>
+    <span class="ir-val" style="color:${tmColor}">${tmText}
+      ${tm.verify_url ? `<a href="${tm.verify_url}" target="_blank" style="color:var(--blue);font-size:0.72rem;display:block">Verify at USPTO →</a>` : ''}
+    </span>
+  </div>`;
+
+  // Similar domains
+  const simEntries = Object.entries(sim.results || {}).map(([dom, status]) => {
+    const taken = status === 'taken';
+    return `<span style="margin-right:10px;font-size:0.75rem;color:${taken?'var(--muted)':'var(--green)'}">
+      ${taken?'✓':'○'} ${dom}</span>`;
+  }).join('');
+
+  const wrap = document.getElementById('pd-comp-wrap');
+  const existing = wrap.innerHTML;
+  wrap.innerHTML = existing + `
+    <div style="margin-bottom:18px">
+      ${flagPills ? `<div class="sb-title" style="margin-bottom:10px">Signal Flags</div>${flagPills}` : ''}
+      <div class="sb-title" style="margin:14px 0 10px">Drop Timeline</div>
+      ${dropHtml || '<div style="color:var(--dim);font-size:0.8rem">No expiry date in WHOIS</div>'}
+      <div class="sb-title" style="margin:14px 0 10px">History & Safety</div>
+      ${wbHtml}${sbHtml}${kwHtml}${tmHtml}
+      ${simEntries ? `<div class="sb-title" style="margin:14px 0 8px">Other TLDs</div><div>${simEntries}</div>` : ''}
+    </div>`;
 }
 
 // ── Quick Analyze ─────────────────────────────────────────────────────────────

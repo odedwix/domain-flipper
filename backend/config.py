@@ -1,5 +1,9 @@
 from pydantic_settings import BaseSettings
 from functools import lru_cache
+from pathlib import Path
+
+# .env lives one level up from backend/
+ENV_FILE = Path(__file__).parent.parent / ".env"
 
 
 class Settings(BaseSettings):
@@ -44,6 +48,13 @@ class Settings(BaseSettings):
     namebio_api_key: str = ""
     namebio_email: str = ""
 
+    # Google Safe Browsing (free — console.cloud.google.com → enable Safe Browsing API)
+    google_api_key: str = ""
+
+    # DataForSEO keyword volume + CPC (~$0.02 per 100 keywords — dataforseo.com)
+    dataforseo_email: str = ""
+    dataforseo_password: str = ""
+
     # Sedo marketplace
     sedo_partner_id: str = ""
     sedo_sign_key: str = ""
@@ -60,7 +71,7 @@ class Settings(BaseSettings):
     min_score_threshold: int = 35
 
     class Config:
-        env_file = ".env"
+        env_file = str(ENV_FILE)
         env_file_encoding = "utf-8"
 
 
