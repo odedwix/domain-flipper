@@ -215,6 +215,7 @@ tr.selected td { background: var(--gold-dim); }
   <span class="scan-status" id="scan-status-text"></span>
   <button class="scan-btn" id="scan-btn" onclick="triggerScan(false)">▶ Scan Now</button>
   <button class="scan-btn" style="background:var(--blue);margin-left:6px" id="demo-btn" onclick="triggerScan(true)">Demo Data</button>
+  <button class="scan-btn" style="background:#7c3aed;margin-left:6px" id="enrich-btn" onclick="enrichPageRank()">⚡ Enrich PageRank</button>
   <button class="scan-btn" style="background:var(--surface);border:1px solid var(--border);color:var(--text);margin-left:6px" onclick="openQuickAnalyze()">🔍 Quick Analyze</button>
   <button class="scan-btn" style="background:var(--surface);border:1px solid var(--border);color:var(--text);margin-left:6px" onclick="openPortfolioHealth()">📊 Portfolio</button>
 </header>
@@ -493,6 +494,46 @@ async function triggerScan(demo = false) {
     showToast('Failed to start scan', 'error');
     btn.disabled = false;
     btn.textContent = demo ? 'Demo Data' : '▶ Scan Now';
+  }
+}
+
+async function enrichPageRank() {
+  const btn = document.getElementById('enrich-btn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Enriching…';
+  try {
+    const r = await fetch(`${API}/api/enrich/pagerank`, { method: 'POST' });
+    const d = await r.json();
+    if (d.status === 'already_running') {
+      showToast('Enrichment already running', 'info');
+    } else {
+      showToast('PageRank enrichment started — scores will update shortly', 'info');
+      setTimeout(pollEnrich, 3000);
+      return;
+    }
+  } catch (e) {
+    showToast('Failed to start enrichment', 'error');
+  }
+  btn.disabled = false;
+  btn.innerHTML = '⚡ Enrich PageRank';
+}
+
+async function pollEnrich() {
+  try {
+    const r = await fetch(`${API}/api/enrich/status`);
+    const d = await r.json();
+    const btn = document.getElementById('enrich-btn');
+    if (d.enrichment_running) {
+      btn.innerHTML = `<span class="spinner"></span> ${d.coverage_pct}% done…`;
+      setTimeout(pollEnrich, 3000);
+    } else {
+      btn.disabled = false;
+      btn.innerHTML = '⚡ Enrich PageRank';
+      showToast(`PageRank enrichment complete — ${d.with_pagerank}/${d.total_domains} domains enriched`, 'success');
+      loadDomains();
+    }
+  } catch (e) {
+    setTimeout(pollEnrich, 5000);
   }
 }
 

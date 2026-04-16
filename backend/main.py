@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from database import Base, engine
 from config import get_settings
-from routers import domains, scan, purchase, outreach, listing, analysis
+from routers import domains, scan, purchase, outreach, listing, analysis, enrich
 
 logging.basicConfig(
     level=logging.INFO,
@@ -93,6 +93,7 @@ app.include_router(purchase.router)
 app.include_router(outreach.router)
 app.include_router(listing.router)
 app.include_router(analysis.router)
+app.include_router(enrich.router)
 
 # ── Frontend static files ──────────────────────────────────────────────────────
 FRONTEND_DIR = Path(__file__).parent.parent / "frontend"

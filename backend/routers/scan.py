@@ -7,7 +7,9 @@ from sqlalchemy.orm import Session
 from database import get_db, SessionLocal
 from models import Domain, DomainScore, ScanLog
 from scrapers.expireddomains import fetch_expired_domains, fetch_demo_domains
+from scrapers.whoisfreaks import fetch_all_whoisfreaks
 from valuation.scorer import score_domain
+from valuation.pagerank import get_pagerank_batch
 from config import get_settings
 
 router = APIRouter(prefix="/api/scan", tags=["scan"])
@@ -38,14 +40,19 @@ async def _run_scan(use_demo: bool = False):
             scan_log.source = "demo"
         else:
             pages = max(1, settings.max_domains_per_scan // 25)
-            raw_domains = await fetch_expired_domains(max_pages=pages)
-            scan_log.source = "expireddomains"
+            # Fetch from both sources in parallel
+            expired_task = fetch_expired_domains(max_pages=pages)
+            whoisfreaks_task = fetch_all_whoisfreaks(max_pages=3)
+            expired_raw, wf_raw = await asyncio.gather(expired_task, whoisfreaks_task)
+            raw_domains = expired_raw + wf_raw
+            scan_log.source = "expireddomains+whoisfreaks" if wf_raw else "expireddomains"
 
         scan_log.domains_found = len(raw_domains)
         db.commit()
 
         saved = 0
         scored = 0
+        new_domains = []
 
         for rd in raw_domains:
             name = rd.get("name", "").lower().strip()
@@ -81,6 +88,7 @@ async def _run_scan(use_demo: bool = False):
             )
             db.add(domain)
             db.flush()  # get the domain.id
+            new_domains.append(domain)
 
             score_row = DomainScore(
                 domain_id=domain.id,
@@ -98,6 +106,30 @@ async def _run_scan(use_demo: bool = False):
             saved += 1
 
         db.commit()
+
+        # Auto-enrich new domains with Open PageRank
+        opr_key = getattr(settings, "openpagerank_api_key", "")
+        if new_domains and opr_key:
+            logger.info(f"Running Open PageRank on {len(new_domains)} new domains")
+            pr_data = await get_pagerank_batch([d.name for d in new_domains])
+            for domain in new_domains:
+                pr = pr_data.get(domain.name, {})
+                da = pr.get("domain_authority_proxy")
+                if da is not None:
+                    domain.domain_authority = float(da)
+                    new_score = score_domain(
+                        domain.name,
+                        age_years=domain.domain_age_years,
+                        backlink_count=domain.backlink_count,
+                        domain_authority=float(da),
+                    )
+                    domain.score = new_score["total_score"]
+                    domain.estimated_value = new_score["estimated_value"]
+                    domain.score_breakdown = json.dumps({
+                        k: v for k, v in new_score.items() if k.endswith("_score")
+                    })
+            db.commit()
+            logger.info("Open PageRank enrichment complete")
 
         scan_log.finished_at = datetime.utcnow()
         scan_log.domains_scored = scored

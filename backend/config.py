@@ -48,6 +48,12 @@ class Settings(BaseSettings):
     namebio_api_key: str = ""
     namebio_email: str = ""
 
+    # Open PageRank (free — domcop.com/openpagerank)
+    openpagerank_api_key: str = ""
+
+    # WhoisFreaks expired domains API (free — whoisfreaks.com)
+    whoisfreaks_api_key: str = ""
+
     # Google Safe Browsing (free — console.cloud.google.com → enable Safe Browsing API)
     google_api_key: str = ""
 
