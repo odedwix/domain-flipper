@@ -322,6 +322,32 @@ tr.selected td { background: var(--gold-dim); }
   </div>
 </div>
 
+<!-- LIST FOR SALE MODAL -->
+<div class="modal-overlay hidden" id="list-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <span class="modal-title">🚀 List for Sale</span>
+      <button class="panel-close" onclick="closeListModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <p style="color:#aaa;margin-bottom:16px">This will automatically list your domain on <strong style="color:#fff">Afternic</strong> (GoDaddy network) and <strong style="color:#fff">Sedo</strong>, and generate a parked landing page.</p>
+      <div class="form-group">
+        <label class="form-label">Domain</label>
+        <input class="form-input" id="list-domain" readonly>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Asking Price (USD)</label>
+        <input class="form-input" id="list-price" type="number" placeholder="e.g. 1500" min="50">
+      </div>
+      <div id="list-result" style="display:none;margin-top:16px"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeListModal()">Cancel</button>
+      <button class="btn btn-primary" id="list-confirm-btn" onclick="confirmList()">List Now →</button>
+    </div>
+  </div>
+</div>
+
 <!-- BUY CONFIRM MODAL -->
 <div class="modal-overlay hidden" id="buy-modal">
   <div class="modal">
@@ -588,6 +614,7 @@ function renderPanel(d) {
     btns += `<button class="panel-action-btn primary" onclick="openBuyModal(${d.id},'${d.name}')">💳 Buy for ~$10.98</button>`;
     btns += `<button class="panel-action-btn" onclick="setStatus(${d.id},'available')">↩ Unwatch</button>`;
   } else if (d.status === 'purchased') {
+    btns += `<button class="panel-action-btn primary" onclick="openListModal(${d.id})">🚀 List for Sale (Afternic + Sedo)</button>`;
     btns += `<button class="panel-action-btn" onclick="openOutreachModal(${d.id})">✉ Contact Original Owner</button>`;
     btns += `<button class="panel-action-btn" onclick="setStatus(${d.id},'sold')">✓ Mark as Sold</button>`;
   }
@@ -660,6 +687,78 @@ async function confirmBuy() {
     btn.disabled = false;
     btn.textContent = 'Buy Domain';
   }
+}
+
+// ── List for Sale Modal ───────────────────────────────────────────────────────
+
+let listDomainId = null;
+
+function openListModal(id) {
+  listDomainId = id;
+  if (currentDomain) {
+    document.getElementById('list-domain').value = currentDomain.name;
+    document.getElementById('list-price').value = currentDomain.estimated_value || 500;
+  }
+  document.getElementById('list-result').style.display = 'none';
+  document.getElementById('list-modal').classList.remove('hidden');
+}
+
+function closeListModal() {
+  document.getElementById('list-modal').classList.add('hidden');
+  listDomainId = null;
+}
+
+async function confirmList() {
+  if (!listDomainId) return;
+  const price = parseFloat(document.getElementById('list-price').value);
+  if (!price || price < 50) { showToast('Enter a valid asking price (min $50)', 'error'); return; }
+
+  const btn = document.getElementById('list-confirm-btn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Listing…';
+
+  try {
+    const r = await fetch(`${API}/api/list/${listDomainId}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ asking_price: price }),
+    });
+    const d = await r.json();
+
+    const resultDiv = document.getElementById('list-result');
+    resultDiv.style.display = 'block';
+
+    const listed = d.listed_on || [];
+    const steps = (d.next_steps || []).map(s => `<li style="margin-bottom:8px">${s}</li>`).join('');
+
+    resultDiv.innerHTML = `
+      <div style="padding:14px;background:var(--green-dim);border-left:2px solid var(--green);border-radius:6px;margin-bottom:12px">
+        <strong style="color:var(--green)">✓ Listed on: ${listed.length ? listed.join(', ') : 'parked page generated'}</strong>
+      </div>
+      <div style="font-size:0.8rem;color:#aaa;margin-bottom:10px"><strong style="color:var(--text)">Next steps:</strong></div>
+      <ol style="font-size:0.8rem;color:#aaa;padding-left:18px;line-height:1.8">${steps}</ol>
+      ${d.parked_html ? `<button class="btn btn-ghost" style="margin-top:14px;width:100%;border-color:var(--blue);color:var(--blue)" onclick="downloadParkedPage('${d.domain}')">⬇ Download Parked Page HTML</button>` : ''}
+    `;
+
+    // Store parked HTML for download
+    if (d.parked_html) window._parkedHtml = { domain: d.domain, html: d.parked_html };
+
+    showToast('Domain listed for sale!', 'success');
+  } catch (e) {
+    showToast('Listing failed', 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'List Now →';
+  }
+}
+
+function downloadParkedPage(domain) {
+  if (!window._parkedHtml) return;
+  const blob = new Blob([window._parkedHtml.html], { type: 'text/html' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `${domain}.html`;
+  a.click();
 }
 
 // ── Outreach Modal ────────────────────────────────────────────────────────────

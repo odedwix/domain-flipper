@@ -40,6 +40,15 @@ class Settings(BaseSettings):
     # ExpiredDomains
     expireddomains_session_cookie: str = ""
 
+    # Sedo marketplace
+    sedo_partner_id: str = ""
+    sedo_sign_key: str = ""
+    sedo_username: str = ""
+    sedo_password: str = ""
+
+    # Parked page contact form (formspree.io — free)
+    formspree_id: str = "YOUR_FORM_ID"
+
     # App
     database_url: str = "sqlite:///./data/domains.db"
     scan_interval_hours: int = 6

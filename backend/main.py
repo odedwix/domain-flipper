@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from database import Base, engine
 from config import get_settings
-from routers import domains, scan, purchase, outreach
+from routers import domains, scan, purchase, outreach, listing
 
 logging.basicConfig(
     level=logging.INFO,
@@ -58,8 +58,11 @@ async def lifespan(app: FastAPI):
         hours=settings.scan_interval_hours,
         id="domain_scan",
     )
+    # Follow-up email drip — runs daily at 9am
+    from outreach.followup_scheduler import run_followup_job
+    scheduler.add_job(run_followup_job, "cron", hour=9, minute=0, id="followup_drip")
     scheduler.start()
-    logger.info(f"Scheduler started — scanning every {settings.scan_interval_hours}h")
+    logger.info(f"Scheduler started — scanning every {settings.scan_interval_hours}h, follow-ups daily at 9am")
 
     yield
 
@@ -88,6 +91,7 @@ app.include_router(domains.router)
 app.include_router(scan.router)
 app.include_router(purchase.router)
 app.include_router(outreach.router)
+app.include_router(listing.router)
 
 # ── Frontend static files ──────────────────────────────────────────────────────
 FRONTEND_DIR = Path(__file__).parent.parent / "frontend"
