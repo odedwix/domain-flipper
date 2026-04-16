@@ -32,6 +32,16 @@ class Domain(Base):
     estimated_value = Column(Float, default=0.0)
     score_breakdown = Column(Text, nullable=True)  # JSON string
 
+    # Lapsed-by-mistake enrichment
+    lapsed_score = Column(Integer, nullable=True)        # 0–100
+    lapsed_label = Column(String, nullable=True)         # HOT / WARM / LUKEWARM / COLD
+    wayback_snapshots = Column(Integer, nullable=True)
+    wayback_first_seen = Column(String, nullable=True)
+    wayback_last_seen = Column(String, nullable=True)
+    prev_owner_name = Column(String, nullable=True)
+    prev_owner_email = Column(String, nullable=True)
+    prev_owner_country = Column(String, nullable=True)
+
     scores = relationship("DomainScore", back_populates="domain", cascade="all, delete-orphan")
     outreach = relationship("OutreachLog", back_populates="domain", cascade="all, delete-orphan")
 

@@ -35,6 +35,14 @@ def _domain_to_dict(d: Domain) -> dict:
         "sold_at": d.sold_at.isoformat() if d.sold_at else None,
         "sold_price": d.sold_price,
         "score_breakdown": breakdown,
+        "lapsed_score": d.lapsed_score,
+        "lapsed_label": d.lapsed_label,
+        "wayback_snapshots": d.wayback_snapshots,
+        "wayback_first_seen": d.wayback_first_seen,
+        "wayback_last_seen": d.wayback_last_seen,
+        "prev_owner_name": d.prev_owner_name,
+        "prev_owner_email": d.prev_owner_email,
+        "prev_owner_country": d.prev_owner_country,
     }
 
 
@@ -43,6 +51,7 @@ async def list_domains(
     status: str = Query(None),
     min_score: float = Query(0),
     tld: str = Query(None),
+    lapsed: str = Query(None),   # HOT | WARM | LUKEWARM | COLD
     sort: str = Query("score"),
     page: int = Query(1, ge=1),
     per_page: int = Query(50, le=200),
@@ -55,6 +64,8 @@ async def list_domains(
         q = q.filter(Domain.score >= min_score)
     if tld:
         q = q.filter(Domain.tld == tld.lower().lstrip("."))
+    if lapsed:
+        q = q.filter(Domain.lapsed_label == lapsed.upper())
 
     if sort == "score":
         q = q.order_by(desc(Domain.score))

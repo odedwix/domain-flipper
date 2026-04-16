@@ -216,6 +216,7 @@ tr.selected td { background: var(--gold-dim); }
   <button class="scan-btn" id="scan-btn" onclick="triggerScan(false)">▶ Scan Now</button>
   <button class="scan-btn" style="background:var(--blue);margin-left:6px" id="demo-btn" onclick="triggerScan(true)">Demo Data</button>
   <button class="scan-btn" style="background:#7c3aed;margin-left:6px" id="enrich-btn" onclick="enrichPageRank()">⚡ Enrich PageRank</button>
+  <button class="scan-btn" style="background:#991b1b;margin-left:6px" id="lapse-btn" onclick="runLapseScan()">🔥 Lapse Scan</button>
   <button class="scan-btn" style="background:var(--surface);border:1px solid var(--border);color:var(--text);margin-left:6px" onclick="openQuickAnalyze()">🔍 Quick Analyze</button>
   <button class="scan-btn" style="background:var(--surface);border:1px solid var(--border);color:var(--text);margin-left:6px" onclick="openPortfolioHealth()">📊 Portfolio</button>
 </header>
@@ -241,6 +242,7 @@ tr.selected td { background: var(--gold-dim); }
       <option value="org">.org</option>
     </select>
     <input type="number" class="filter-input" id="f-score" placeholder="Min score" min="0" max="100" style="width:110px" onchange="loadDomains()">
+    <button class="filter-select" id="f-hot-btn" onclick="toggleHotFilter()" style="background:var(--surface);border:1px solid var(--border);color:var(--muted);cursor:pointer;font-size:0.78rem;padding:0 12px">🔥 HOT only</button>
     <select class="filter-select" id="f-sort" onchange="loadDomains()">
       <option value="score">Sort: Score</option>
       <option value="value">Sort: Value</option>
@@ -537,6 +539,49 @@ async function pollEnrich() {
   }
 }
 
+async function runLapseScan() {
+  const btn = document.getElementById('lapse-btn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Scanning…';
+  try {
+    const r = await fetch(`${API}/api/enrich/lapsed`, { method: 'POST' });
+    const d = await r.json();
+    if (d.status === 'already_running') {
+      showToast('Lapse scan already running', 'info');
+    } else {
+      showToast('🔥 Lapse scan started — HOT domains will appear as results come in', 'info');
+      setTimeout(pollLapseScan, 3000);
+      return;
+    }
+  } catch (e) {
+    showToast('Failed to start lapse scan', 'error');
+  }
+  btn.disabled = false;
+  btn.innerHTML = '🔥 Lapse Scan';
+}
+
+async function pollLapseScan() {
+  try {
+    const r = await fetch(`${API}/api/enrich/status`);
+    const d = await r.json();
+    const btn = document.getElementById('lapse-btn');
+    if (d.lapsed_enriching) {
+      const pct = d.lapsed_progress?.total
+        ? Math.round(d.lapsed_progress.done / d.lapsed_progress.total * 100) : 0;
+      btn.innerHTML = `<span class="spinner"></span> ${pct}% — ${d.hot_count ?? 0} HOT`;
+      loadDomains(currentPage);
+      setTimeout(pollLapseScan, 3000);
+    } else {
+      btn.disabled = false;
+      btn.innerHTML = '🔥 Lapse Scan';
+      showToast(`🔥 Lapse scan complete — ${d.hot_count} HOT, ${d.warm_count} WARM domains found`, 'success');
+      loadDomains(1);
+    }
+  } catch (e) {
+    setTimeout(pollLapseScan, 5000);
+  }
+}
+
 async function pollScan() {
   try {
     const r = await fetch(`${API}/api/scan/status`);
@@ -573,6 +618,17 @@ function setSort(s) {
   loadDomains();
 }
 
+let hotFilterActive = false;
+
+function toggleHotFilter() {
+  hotFilterActive = !hotFilterActive;
+  const btn = document.getElementById('f-hot-btn');
+  btn.style.background = hotFilterActive ? 'rgba(239,68,68,0.15)' : 'var(--surface)';
+  btn.style.borderColor = hotFilterActive ? '#ef4444' : 'var(--border)';
+  btn.style.color = hotFilterActive ? '#ef4444' : 'var(--muted)';
+  loadDomains(1);
+}
+
 async function loadDomains(page = currentPage) {
   const status = document.getElementById('f-status').value;
   const tld = document.getElementById('f-tld').value;
@@ -583,6 +639,7 @@ async function loadDomains(page = currentPage) {
     page, per_page: 50, sort, min_score: minScore,
     ...(status && { status }),
     ...(tld && { tld }),
+    ...(hotFilterActive && { lapsed: 'HOT' }),
   });
 
   try {
@@ -628,8 +685,9 @@ function renderTable(domains) {
 
     return `<tr onclick="openPanel(${d.id})" id="row-${d.id}" ${currentDomain?.id === d.id ? 'class="selected"' : ''}>
       <td>
-        <div class="domain-name">${d.sld}</div>
-        <div class="domain-tld">.${d.tld}</div>
+        <div class="domain-name">${d.sld}<span class="domain-tld">.${d.tld}</span></div>
+        ${d.lapsed_label === 'HOT' ? `<div style="font-size:0.68rem;font-weight:700;color:#ef4444;letter-spacing:0.05em;margin-top:2px">🔥 HOT — owner likely to rebuy</div>` :
+          d.lapsed_label === 'WARM' ? `<div style="font-size:0.68rem;color:#f97316;margin-top:2px">🌡 WARM — worth reaching out</div>` : ''}
       </td>
       <td>
         <div class="score-cell">
