@@ -49,29 +49,39 @@ async def wayback_analysis(domain: str) -> dict:
     """
     base = "http://web.archive.org/cdx/search/cdx"
 
+    def parse_ts(ts: str) -> Optional[str]:
+        try:
+            return datetime.strptime(ts[:8], "%Y%m%d").strftime("%Y-%m-%d")
+        except Exception:
+            return None
+
+    async def _cdx_fetch(client, **params):
+        """Fetch CDX with one retry on timeout."""
+        for attempt in range(2):
+            try:
+                r = await client.get(base, params=params)
+                if r.status_code == 200:
+                    return r.json()
+                return []
+            except (httpx.TimeoutException, httpx.NetworkError):
+                if attempt == 0:
+                    await asyncio.sleep(2)
+                else:
+                    raise
+
     try:
-        async with httpx.AsyncClient(timeout=12.0) as client:
-            # Get first and last snapshot
-            first_r, last_r, count_r = await asyncio.gather(
-                client.get(base, params={"url": domain, "limit": 1, "output": "json", "fl": "timestamp,statuscode"}),
-                client.get(base, params={"url": domain, "limit": -1, "output": "json", "fl": "timestamp,statuscode"}),
-                client.get(base, params={"url": domain, "output": "json", "fl": "timestamp", "collapse": "timestamp:10"}),
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            # Single call: collapse to monthly buckets (gives count + first + last)
+            count_rows = await _cdx_fetch(
+                client,
+                url=domain, output="json", fl="timestamp",
+                collapse="timestamp:6", limit=500
             )
 
-        def parse_ts(ts: str) -> Optional[str]:
-            try:
-                return datetime.strptime(ts[:8], "%Y%m%d").strftime("%Y-%m-%d")
-            except Exception:
-                return None
-
-        first_rows = first_r.json() if first_r.status_code == 200 else []
-        last_rows  = last_r.json()  if last_r.status_code == 200 else []
-        count_rows = count_r.json() if count_r.status_code == 200 else []
-
-        first_date = parse_ts(first_rows[1][0]) if len(first_rows) > 1 else None
-        last_date  = parse_ts(last_rows[-1][0])  if len(last_rows) > 1 else None
-        # Subtract 1 for the header row
-        snapshot_count = max(0, len(count_rows) - 1)
+        data_rows = count_rows[1:]  # strip header
+        snapshot_count = len(data_rows)
+        first_date = parse_ts(data_rows[0][0]) if data_rows else None
+        last_date  = parse_ts(data_rows[-1][0]) if data_rows else None
 
         # Age from first wayback snapshot (proxy for domain age)
         wb_age_years = None

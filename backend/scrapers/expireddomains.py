@@ -57,11 +57,24 @@ def _parse_int(val: str) -> Optional[int]:
 
 
 def _parse_leading_int(text: str) -> Optional[int]:
-    """Extract the leading integer from a string like '6Majestic.com SEOkic' → 6."""
-    m = re.match(r"^\s*(\d+)", text)
-    if m:
-        return int(m.group(1))
-    return None
+    """
+    Extract backlink count from strings like:
+      '87Majestic.com'   → 87
+      '14.3 KMajestic.'  → 14300
+      '1.5K'             → 1500
+      '6Majestic.com SEOkic' → 6
+    """
+    # Match: optional decimal number, optional 'K' multiplier
+    m = re.match(r"^\s*([\d]+(?:\.[\d]+)?)\s*([Kk])?", text)
+    if not m:
+        return None
+    try:
+        num = float(m.group(1))
+        if m.group(2):
+            num *= 1000
+        return int(num)
+    except (ValueError, TypeError):
+        return None
 
 
 def _parse_table(html: str) -> list[dict]:
@@ -172,6 +185,66 @@ async def fetch_expired_domains(max_pages: int = 5) -> list[dict]:
 
     logger.info(f"Total domains fetched: {len(all_domains)}")
     return all_domains
+
+
+# Grace-period lists — these are better quality because the owner may still want the domain back
+EXPIRING_LISTS = [
+    ("expiring", f"{BASE_URL}/expiring-domains/"),      # just-expired, in 30-day grace period
+    ("pending", f"{BASE_URL}/deleted-com-domains/"),    # deleted (current)
+]
+
+
+async def _fetch_list(path: str, source_label: str, max_pages: int) -> list[dict]:
+    """Generic fetcher for any expireddomains.net list page."""
+    settings = get_settings()
+    session_cookie = settings.expireddomains_session_cookie
+    if not session_cookie:
+        return []
+
+    cookies = {"ef_session": session_cookie}
+    all_domains: list[dict] = []
+
+    async with httpx.AsyncClient(
+        headers=HEADERS, cookies=cookies,
+        follow_redirects=True, timeout=30.0,
+    ) as client:
+        for page in range(max_pages):
+            start = page * 25
+            url = f"{BASE_URL}{path}?start={start}"
+            try:
+                resp = await client.get(url)
+                resp.raise_for_status()
+                parsed = _parse_table(resp.text)
+                if not parsed:
+                    break
+                for d in parsed:
+                    d["source"] = source_label
+                all_domains.extend(parsed)
+                logger.info(f"{source_label} page {page + 1}: {len(parsed)} (total {len(all_domains)})")
+                await asyncio.sleep(2.0)
+            except Exception as e:
+                logger.error(f"Error fetching {source_label} page {page + 1}: {e}")
+                break
+
+    logger.info(f"Total {source_label} domains fetched: {len(all_domains)}")
+    return all_domains
+
+
+async def fetch_expiring_domains(max_pages: int = 10) -> list[dict]:
+    """
+    Fetch .com domains currently in the grace/redemption period.
+    These are better quality — owner may still repurchase (great HOT candidates),
+    and they haven't been drop-caught yet.
+    """
+    return await _fetch_list("/expired-domains/", "expiring", max_pages)
+
+
+async def fetch_godaddy_auctions(max_pages: int = 5) -> list[dict]:
+    """
+    Fetch GoDaddy expired domain auctions WITH active bids.
+    These are premium — real buyers have already validated they're worth something.
+    """
+    return await _fetch_list("/godaddy-domain-auctions-with-bids/", "godaddy_auction", max_pages)
 
 
 async def fetch_demo_domains() -> list[dict]:

@@ -6,9 +6,9 @@ from fastapi import APIRouter, Depends, BackgroundTasks
 from sqlalchemy.orm import Session
 from database import get_db, SessionLocal
 from models import Domain, DomainScore, ScanLog
-from scrapers.expireddomains import fetch_expired_domains, fetch_demo_domains
+from scrapers.expireddomains import fetch_expired_domains, fetch_expiring_domains, fetch_godaddy_auctions, fetch_demo_domains
 from scrapers.whoisfreaks import fetch_all_whoisfreaks
-from valuation.scorer import score_domain
+from valuation.scorer import score_domain, score_word
 from valuation.pagerank import get_pagerank_batch
 from config import get_settings
 
@@ -40,12 +40,33 @@ async def _run_scan(use_demo: bool = False):
             scan_log.source = "demo"
         else:
             pages = max(1, settings.max_domains_per_scan // 25)
-            # Fetch from both sources in parallel
-            expired_task = fetch_expired_domains(max_pages=pages)
+            # Fetch from all sources in parallel: deleted + expiring (grace period) + whoisfreaks
+            deleted_task = fetch_expired_domains(max_pages=pages)
+            expiring_task = fetch_expiring_domains(max_pages=pages)
+            gd_task = fetch_godaddy_auctions(max_pages=5)
             whoisfreaks_task = fetch_all_whoisfreaks(max_pages=3)
-            expired_raw, wf_raw = await asyncio.gather(expired_task, whoisfreaks_task)
-            raw_domains = expired_raw + wf_raw
-            scan_log.source = "expireddomains+whoisfreaks" if wf_raw else "expireddomains"
+            deleted_raw, expiring_raw, gd_raw, wf_raw = await asyncio.gather(
+                deleted_task, expiring_task, gd_task, whoisfreaks_task
+            )
+            # De-duplicate: GoDaddy auctions > expiring (grace period) > deleted > whoisfreaks
+            seen = {}
+            for d in gd_raw:
+                seen[d["name"]] = d
+            for d in expiring_raw:
+                if d["name"] not in seen:
+                    seen[d["name"]] = d
+            for d in deleted_raw + wf_raw:
+                if d["name"] not in seen:
+                    seen[d["name"]] = d
+            raw_domains = list(seen.values())
+            sources = ["expireddomains"]
+            if expiring_raw:
+                sources.append("expiring")
+            if gd_raw:
+                sources.append("godaddy_auctions")
+            if wf_raw:
+                sources.append("whoisfreaks")
+            scan_log.source = "+".join(sources)
 
         scan_log.domains_found = len(raw_domains)
         db.commit()
@@ -58,6 +79,29 @@ async def _run_scan(use_demo: bool = False):
             name = rd.get("name", "").lower().strip()
             if not name or "." not in name:
                 continue
+
+            # ── Quality gate ─────────────────────────────────────────────────
+            import tldextract as _tld
+            _ext = _tld.extract(name)
+            sld = _ext.domain
+
+            # Reject pure gibberish (no recognizable English words)
+            if score_word(sld) <= 10:
+                continue
+
+            # Reject hyphens (low resale value)
+            if "-" in sld:
+                continue
+
+            # Reject SLD > 15 chars (hard to brand or remember)
+            if len(sld) > 15:
+                continue
+
+            # Reject domains that are mostly numbers
+            digit_ratio = sum(c.isdigit() for c in sld) / max(len(sld), 1)
+            if digit_ratio > 0.4:
+                continue
+            # ─────────────────────────────────────────────────────────────────
 
             age = rd.get("domain_age_years")
             bl = rd.get("backlink_count")
