@@ -329,20 +329,24 @@ async def enrich_domain(domain: str, expiry_date: Optional[str] = None) -> dict:
     Run all enrichment signals for a domain in parallel.
     Returns a combined dict with all signal data.
     """
+    from valuation.whois_lookup import whois_lookup, lapsed_by_mistake_score
+
     ext = tldextract.extract(domain)
     sld = ext.domain
 
     # Run async signals in parallel
-    wayback, safe, kw_metrics, similar = await asyncio.gather(
+    wayback, safe, kw_metrics, similar, whois_data = await asyncio.gather(
         wayback_analysis(domain),
         safe_browsing_check(domain),
         keyword_metrics(sld),
         check_similar_domains(domain),
+        whois_lookup(domain),
     )
 
     # Sync signals
-    drop_info = calculate_drop_date(expiry_date)
+    drop_info = calculate_drop_date(expiry_date or whois_data.get("expiration_date"))
     tm_check  = trademark_check(domain)
+    lapsed    = lapsed_by_mistake_score(whois_data, wayback)
 
     return {
         "domain": domain,
@@ -352,6 +356,8 @@ async def enrich_domain(domain: str, expiry_date: Optional[str] = None) -> dict:
         "drop_info": drop_info,
         "trademark": tm_check,
         "similar_domains": similar,
+        "whois": whois_data,
+        "lapsed": lapsed,
     }
 
 
@@ -415,6 +421,16 @@ def signals_to_score_adjustments(enrichment: dict) -> dict:
     elif drop.get("phase") == "pending_delete":
         days = drop.get("days_until_drop", 0)
         flags.append(f"Drops in {days} days — set a reminder to register then")
+
+    # Lapsed-by-mistake — bonus if original owner is likely to buy back
+    lapsed = enrichment.get("lapsed", {})
+    lapsed_score = lapsed.get("lapsed_score", 0)
+    if lapsed_score >= 75:
+        bonus += 10
+        flags.append(f"HOT resale target — original owner very likely to rebuy ({lapsed_score}/100)")
+    elif lapsed_score >= 50:
+        bonus += 5
+        flags.append(f"WARM resale target — original owner may want it back ({lapsed_score}/100)")
 
     return {
         "bonus": round(bonus, 1),

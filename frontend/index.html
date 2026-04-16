@@ -1024,6 +1024,8 @@ function renderEnrichment(d) {
   const drop = e.drop_info || {};
   const tm = e.trademark || {};
   const sim = e.similar_domains || {};
+  const lapsed = e.lapsed || {};
+  const whois = e.whois || {};
 
   // Flag pills from adjustments
   const flagPills = (adj?.flags || []).map(f => {
@@ -1092,11 +1094,50 @@ function renderEnrichment(d) {
       ${taken?'✓':'○'} ${dom}</span>`;
   }).join('');
 
+  // Lapsed-by-mistake card
+  const lapsedColor = lapsed.label === 'HOT' ? '#ef4444' : lapsed.label === 'WARM' ? '#f97316' : lapsed.label === 'LUKEWARM' ? '#eab308' : 'var(--muted)';
+  const lapsedBg = lapsed.label === 'HOT' ? 'rgba(239,68,68,0.12)' : lapsed.label === 'WARM' ? 'rgba(249,115,22,0.12)' : lapsed.label === 'LUKEWARM' ? 'rgba(234,179,8,0.1)' : 'var(--surface)';
+  const lapsedHtml = lapsed.lapsed_score != null ? `
+    <div style="background:${lapsedBg};border:1px solid ${lapsedColor};border-radius:10px;padding:14px;margin-bottom:14px">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+        <span style="font-size:1.1rem;font-weight:700;color:${lapsedColor}">${lapsed.label}</span>
+        <span style="font-size:0.75rem;color:var(--muted)">Lapsed-by-mistake score: ${lapsed.lapsed_score}/100</span>
+        <div style="flex:1;height:4px;background:var(--border);border-radius:2px;overflow:hidden">
+          <div style="width:${lapsed.lapsed_score}%;height:100%;background:${lapsedColor};border-radius:2px"></div>
+        </div>
+      </div>
+      <div style="font-size:0.8rem;color:#ccc;margin-bottom:10px">${lapsed.verdict}</div>
+      ${(lapsed.signals||[]).map(s => `<div style="font-size:0.75rem;color:var(--muted);margin-bottom:3px">• ${s}</div>`).join('')}
+    </div>` : '';
+
+  // Previous owner card
+  const ownerName = lapsed.registrant_org || lapsed.registrant_name || whois.registrant_org || whois.registrant_name;
+  const ownerEmail = lapsed.registrant_email || whois.registrant_email;
+  const ownerCountry = lapsed.registrant_country || whois.registrant_country;
+  const ownerCity = lapsed.registrant_city || whois.registrant_city;
+  const createdDate = lapsed.creation_date || whois.creation_date;
+  const expiredDate = lapsed.expiration_date || whois.expiration_date;
+  const registrar = lapsed.registrar || whois.registrar;
+
+  const ownerHtml = (ownerName || ownerEmail) ? `
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:14px">
+      <div class="sb-title" style="margin-bottom:10px">Previous Owner</div>
+      ${ownerName ? `<div class="info-row"><span class="ir-label">Company / Name</span><span class="ir-val" style="color:var(--gold)">${ownerName}</span></div>` : ''}
+      ${ownerEmail ? `<div class="info-row"><span class="ir-label">Email</span><span class="ir-val"><a href="mailto:${ownerEmail}" style="color:var(--blue)">${ownerEmail}</a></span></div>` : ''}
+      ${ownerCity || ownerCountry ? `<div class="info-row"><span class="ir-label">Location</span><span class="ir-val">${[ownerCity,ownerCountry].filter(Boolean).join(', ')}</span></div>` : ''}
+      ${registrar ? `<div class="info-row"><span class="ir-label">Registrar</span><span class="ir-val" style="color:var(--muted);font-size:0.78rem">${registrar}</span></div>` : ''}
+      ${createdDate ? `<div class="info-row"><span class="ir-label">First registered</span><span class="ir-val">${createdDate}</span></div>` : ''}
+      ${expiredDate ? `<div class="info-row"><span class="ir-label">Expired</span><span class="ir-val" style="color:var(--red)">${expiredDate}</span></div>` : ''}
+    </div>` : `<div style="color:var(--dim);font-size:0.8rem;margin-bottom:12px">Owner info hidden (WHOIS privacy) — run analysis to look up</div>`;
+
   const wrap = document.getElementById('pd-comp-wrap');
   const existing = wrap.innerHTML;
   wrap.innerHTML = existing + `
     <div style="margin-bottom:18px">
       ${flagPills ? `<div class="sb-title" style="margin-bottom:10px">Signal Flags</div>${flagPills}` : ''}
+      <div class="sb-title" style="margin:14px 0 10px">Will They Rebuy?</div>
+      ${lapsedHtml}
+      ${ownerHtml}
       <div class="sb-title" style="margin:14px 0 10px">Drop Timeline</div>
       ${dropHtml || '<div style="color:var(--dim);font-size:0.8rem">No expiry date in WHOIS</div>'}
       <div class="sb-title" style="margin:14px 0 10px">History & Safety</div>
