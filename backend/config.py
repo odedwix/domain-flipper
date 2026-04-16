@@ -40,6 +40,10 @@ class Settings(BaseSettings):
     # ExpiredDomains
     expireddomains_session_cookie: str = ""
 
+    # Namebio comparable sales API (~$0.25–0.50 per lookup)
+    namebio_api_key: str = ""
+    namebio_email: str = ""
+
     # Sedo marketplace
     sedo_partner_id: str = ""
     sedo_sign_key: str = ""

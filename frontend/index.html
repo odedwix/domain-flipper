@@ -166,6 +166,28 @@ tr.selected td { background: var(--gold-dim); }
 .toast.error { background: var(--red); color: #fff; }
 .toast.info { background: var(--gold); color: #000; }
 
+/* Recommendation card */
+.rec-card { border-radius: 12px; padding: 16px 18px; margin-bottom: 18px; border: 1px solid; }
+.rec-card.BUY   { background: var(--green-dim); border-color: rgba(76,175,125,0.35); }
+.rec-card.MAYBE { background: var(--gold-dim);  border-color: rgba(212,168,67,0.35); }
+.rec-card.SKIP  { background: var(--red-dim);   border-color: rgba(224,92,92,0.35); }
+.rec-decision { font-size: 1.4rem; font-weight: 800; letter-spacing: 0.05em; display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+.rec-decision.BUY   { color: var(--green); }
+.rec-decision.MAYBE { color: var(--gold); }
+.rec-decision.SKIP  { color: var(--red); }
+.rec-reason { font-size: 0.83rem; color: #aaa; line-height: 1.6; }
+.rec-metrics { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1px; background: var(--border); border-radius: 8px; overflow: hidden; margin: 14px 0; }
+.rec-metric { background: var(--surface); padding: 10px 12px; }
+.rec-metric .rm-val { font-family: 'DM Serif Display', serif; font-size: 1.1rem; color: #fff; }
+.rec-metric .rm-label { font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--dim); margin-top: 2px; }
+.risk-list, .pos-list { margin: 8px 0; padding: 0; list-style: none; }
+.risk-list li { font-size: 0.78rem; color: #aaa; padding: 4px 0; padding-left: 16px; position: relative; line-height: 1.5; }
+.risk-list li::before { content: '⚠'; position: absolute; left: 0; font-size: 0.7rem; color: var(--red); }
+.pos-list li::before  { content: '✓'; position: absolute; left: 0; font-size: 0.7rem; color: var(--green); }
+.comp-sale { display: flex; justify-content: space-between; padding: 7px 0; border-bottom: 1px solid var(--border); font-size: 0.8rem; }
+.comp-sale:last-child { border-bottom: none; }
+.comp-price { color: var(--green); font-weight: 700; }
+
 /* Scrollbar */
 ::-webkit-scrollbar { width: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
@@ -193,6 +215,8 @@ tr.selected td { background: var(--gold-dim); }
   <span class="scan-status" id="scan-status-text"></span>
   <button class="scan-btn" id="scan-btn" onclick="triggerScan(false)">▶ Scan Now</button>
   <button class="scan-btn" style="background:var(--blue);margin-left:6px" id="demo-btn" onclick="triggerScan(true)">Demo Data</button>
+  <button class="scan-btn" style="background:var(--surface);border:1px solid var(--border);color:var(--text);margin-left:6px" onclick="openQuickAnalyze()">🔍 Quick Analyze</button>
+  <button class="scan-btn" style="background:var(--surface);border:1px solid var(--border);color:var(--text);margin-left:6px" onclick="openPortfolioHealth()">📊 Portfolio</button>
 </header>
 
 <!-- MAIN LIST -->
@@ -268,10 +292,15 @@ tr.selected td { background: var(--gold-dim); }
       <span class="pv-label">Estimated resale value</span>
     </div>
 
+    <!-- Recommendation card -->
+    <div id="pd-rec-wrap"></div>
+
     <div class="score-breakdown">
       <div class="sb-title">Score Breakdown</div>
       <div id="sb-rows"></div>
     </div>
+
+    <div id="pd-comp-wrap"></div>
 
     <div class="panel-actions" id="pd-actions"></div>
 
@@ -318,6 +347,37 @@ tr.selected td { background: var(--gold-dim); }
       <button class="btn btn-ghost" onclick="closeOutreachModal()">Cancel</button>
       <button class="btn btn-ghost" onclick="doWhoisLookup()" style="border-color:var(--blue);color:var(--blue)">🔍 WHOIS Lookup</button>
       <button class="btn btn-primary" onclick="sendOutreach()">✉ Send Email</button>
+    </div>
+  </div>
+</div>
+
+<!-- QUICK ANALYZE MODAL -->
+<div class="modal-overlay hidden" id="quick-analyze-modal">
+  <div class="modal" style="width:580px">
+    <div class="modal-header">
+      <span class="modal-title">🔍 Quick Domain Analysis</span>
+      <button class="panel-close" onclick="document.getElementById('quick-analyze-modal').classList.add('hidden')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group" style="display:flex;gap:10px">
+        <input class="form-input" id="qa-domain" placeholder="e.g. loanpro.com" style="flex:1">
+        <input class="form-input" id="qa-budget" type="number" placeholder="Weekly budget $" value="50" style="width:140px">
+        <button class="btn btn-primary" onclick="runQuickAnalyze()" style="white-space:nowrap">Analyze →</button>
+      </div>
+      <div id="qa-result"></div>
+    </div>
+  </div>
+</div>
+
+<!-- PORTFOLIO HEALTH MODAL -->
+<div class="modal-overlay hidden" id="portfolio-modal">
+  <div class="modal" style="width:540px">
+    <div class="modal-header">
+      <span class="modal-title">📊 Portfolio Health</span>
+      <button class="panel-close" onclick="document.getElementById('portfolio-modal').classList.add('hidden')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div id="portfolio-result"><div style="color:var(--muted);text-align:center;padding:30px">Loading…</div></div>
     </div>
   </div>
 </div>
@@ -564,6 +624,7 @@ async function openPanel(id) {
     const d = await r.json();
     currentDomain = d;
     renderPanel(d);
+    loadRecommendation(id);
   } catch (e) {
     document.getElementById('pd-sub').textContent = 'Error loading domain';
   }
@@ -826,6 +887,187 @@ async function sendOutreach() {
     }
   } catch (e) {
     showToast('Failed to send email', 'error');
+  }
+}
+
+// ── Recommendation ───────────────────────────────────────────────────────────
+
+async function loadRecommendation(domainId, weeklyBudget = 50) {
+  document.getElementById('pd-rec-wrap').innerHTML =
+    '<div style="color:var(--muted);font-size:0.8rem;padding:8px 0">Analyzing…</div>';
+  document.getElementById('pd-comp-wrap').innerHTML = '';
+
+  try {
+    const r = await fetch(`${API}/api/analyze/${domainId}?weekly_budget=${weeklyBudget}`);
+    const d = await r.json();
+    renderRecommendation(d);
+  } catch (e) {
+    document.getElementById('pd-rec-wrap').innerHTML =
+      '<div style="color:var(--dim);font-size:0.8rem;padding:8px 0">Analysis unavailable</div>';
+  }
+}
+
+function renderRecommendation(d) {
+  const icon = { BUY: '✅', MAYBE: '⚡', SKIP: '🚫' }[d.decision] || '';
+  const daysLabel = d.days_to_sell_estimate < 30 ? `~${d.days_to_sell_estimate}d`
+    : d.days_to_sell_estimate < 90 ? `~${Math.round(d.days_to_sell_estimate/7)}wk`
+    : `~${Math.round(d.days_to_sell_estimate/30)}mo`;
+
+  const positiveItems = (d.positives || []).map(p =>
+    `<li style="position:relative;padding-left:16px">${p}</li>`).join('');
+  const riskItems = (d.risks || []).map(r =>
+    `<li style="position:relative;padding-left:16px">${r}</li>`).join('');
+
+  document.getElementById('pd-rec-wrap').innerHTML = `
+    <div class="rec-card ${d.decision}">
+      <div class="rec-decision ${d.decision}">${icon} ${d.decision}
+        <span style="font-size:0.75rem;font-weight:500;opacity:0.7">${d.confidence}% confidence</span>
+      </div>
+      <div class="rec-reason">${d.reason}</div>
+      <div class="rec-metrics">
+        <div class="rec-metric">
+          <div class="rm-val">${d.net_profit_estimate >= 0 ? '+' : ''}$${Math.round(d.net_profit_estimate).toLocaleString()}</div>
+          <div class="rm-label">Net profit est.</div>
+        </div>
+        <div class="rec-metric">
+          <div class="rm-val">${daysLabel}</div>
+          <div class="rm-label">Est. time to sell</div>
+        </div>
+        <div class="rec-metric">
+          <div class="rm-val">${d.roi_estimate_pct}%</div>
+          <div class="rm-label">ROI (after fees)</div>
+        </div>
+      </div>
+      ${positiveItems ? `<ul class="pos-list risk-list" style="margin-bottom:6px">${positiveItems}</ul>` : ''}
+      ${riskItems ? `<ul class="risk-list">${riskItems}</ul>` : ''}
+    </div>`;
+
+  // Comparables
+  const comps = d.comparables;
+  if (comps) {
+    const sales = comps.sales || [];
+    const salesHtml = sales.length
+      ? sales.map(s => `
+          <div class="comp-sale">
+            <span style="color:#aaa">${s.domain}</span>
+            <span style="color:var(--dim);font-size:0.75rem">${s.sale_date || ''} · ${s.venue || ''}</span>
+            <span class="comp-price">$${(s.sale_price||0).toLocaleString()}</span>
+          </div>`).join('')
+      : '<div style="color:var(--dim);font-size:0.8rem;padding:8px 0">No comparable sales found</div>';
+
+    const avgHtml = comps.avg_sale_price
+      ? `<span style="color:var(--green);font-weight:700">Avg: $${comps.avg_sale_price.toLocaleString()}</span>`
+      : '';
+
+    const noteHtml = comps.note
+      ? `<div style="font-size:0.72rem;color:var(--dim);margin-top:8px">${comps.note}</div>` : '';
+
+    document.getElementById('pd-comp-wrap').innerHTML = `
+      <div style="margin-bottom:18px">
+        <div class="sb-title" style="margin-bottom:10px">Comparable Sales ${avgHtml}</div>
+        ${salesHtml}
+        ${noteHtml}
+      </div>`;
+  }
+}
+
+// ── Quick Analyze ─────────────────────────────────────────────────────────────
+
+function openQuickAnalyze() {
+  document.getElementById('quick-analyze-modal').classList.remove('hidden');
+  document.getElementById('qa-result').innerHTML = '';
+  setTimeout(() => document.getElementById('qa-domain').focus(), 100);
+}
+
+async function runQuickAnalyze() {
+  const domain = document.getElementById('qa-domain').value.trim();
+  const budget = parseFloat(document.getElementById('qa-budget').value) || 50;
+  if (!domain) return;
+
+  document.getElementById('qa-result').innerHTML =
+    '<div style="color:var(--muted);padding:16px 0;text-align:center"><span class="spinner"></span> Analyzing…</div>';
+
+  try {
+    const r = await fetch(`${API}/api/analyze/quick`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ domain, weekly_budget: budget }),
+    });
+    const d = await r.json();
+
+    // Render inline
+    const icon = { BUY: '✅', MAYBE: '⚡', SKIP: '🚫' }[d.decision] || '';
+    const daysLabel = d.days_to_sell_estimate < 30 ? `~${d.days_to_sell_estimate} days`
+      : d.days_to_sell_estimate < 90 ? `~${Math.round(d.days_to_sell_estimate/7)} weeks`
+      : `~${Math.round(d.days_to_sell_estimate/30)} months`;
+
+    const risks = (d.risks||[]).map(r => `<li style="position:relative;padding-left:16px">${r}</li>`).join('');
+    const pos   = (d.positives||[]).map(p => `<li style="position:relative;padding-left:16px">${p}</li>`).join('');
+    const comps = d.comparables?.sales || [];
+    const compsHtml = comps.length
+      ? comps.map(s => `<div class="comp-sale"><span style="color:#aaa">${s.domain}</span><span class="comp-price">$${(s.sale_price||0).toLocaleString()}</span></div>`).join('')
+      : `<div style="color:var(--dim);font-size:0.8rem">${d.comparables?.note || 'No data'}</div>`;
+
+    document.getElementById('qa-result').innerHTML = `
+      <div style="margin-top:16px">
+        <div class="rec-card ${d.decision}">
+          <div class="rec-decision ${d.decision}">${icon} ${d.decision}
+            <span style="font-size:0.75rem;font-weight:500;opacity:0.7">${d.confidence}% confidence</span>
+          </div>
+          <div class="rec-reason">${d.reason}</div>
+          <div class="rec-metrics">
+            <div class="rec-metric"><div class="rm-val">${d.net_profit_estimate >= 0 ? '+' : ''}$${Math.round(d.net_profit_estimate).toLocaleString()}</div><div class="rm-label">Net profit est.</div></div>
+            <div class="rec-metric"><div class="rm-val">${daysLabel}</div><div class="rm-label">Est. to sell</div></div>
+            <div class="rec-metric"><div class="rm-val">${d.roi_estimate_pct}%</div><div class="rm-label">ROI after fees</div></div>
+          </div>
+          ${pos ? `<ul class="pos-list risk-list" style="margin-bottom:6px">${pos}</ul>` : ''}
+          ${risks ? `<ul class="risk-list">${risks}</ul>` : ''}
+        </div>
+        <div class="sb-title" style="margin:14px 0 10px">
+          Comparable Sales
+          ${d.comparables?.avg_sale_price ? `<span style="color:var(--green);font-weight:700;font-size:0.9rem">Avg $${d.comparables.avg_sale_price.toLocaleString()}</span>` : ''}
+        </div>
+        ${compsHtml}
+      </div>`;
+  } catch(e) {
+    document.getElementById('qa-result').innerHTML =
+      '<div style="color:var(--red);padding:12px 0">Analysis failed — is the server running?</div>';
+  }
+}
+
+// ── Portfolio Health ──────────────────────────────────────────────────────────
+
+async function openPortfolioHealth() {
+  document.getElementById('portfolio-modal').classList.remove('hidden');
+  document.getElementById('portfolio-result').innerHTML =
+    '<div style="color:var(--muted);text-align:center;padding:30px"><span class="spinner"></span> Loading…</div>';
+
+  try {
+    const r = await fetch(`${API}/api/analyze/portfolio/health`);
+    const d = await r.json();
+
+    const warnings = (d.warnings || []).map(w =>
+      `<div style="padding:10px 14px;background:var(--red-dim);border-left:2px solid var(--red);border-radius:6px;margin-bottom:8px;font-size:0.82rem;color:#aaa">${w}</div>`
+    ).join('') || '<div style="color:var(--green);font-size:0.85rem">✓ Portfolio looks healthy</div>';
+
+    const tlds = Object.entries(d.tld_breakdown || {})
+      .map(([t, n]) => `<span style="margin-right:12px"><strong style="color:#fff">.${t}</strong> <span style="color:var(--muted)">${n}</span></span>`).join('');
+    const sectors = Object.entries(d.sector_breakdown || {})
+      .map(([s, n]) => `<span style="margin-right:12px"><strong style="color:#fff">${s}</strong> <span style="color:var(--muted)">${n}</span></span>`).join('');
+
+    document.getElementById('portfolio-result').innerHTML = `
+      <div class="rec-metrics" style="margin-bottom:18px">
+        <div class="rec-metric"><div class="rm-val">${d.total_domains}</div><div class="rm-label">Domains owned</div></div>
+        <div class="rec-metric"><div class="rm-val">$${d.monthly_burn}/mo</div><div class="rm-label">Renewal burn</div></div>
+        <div class="rec-metric"><div class="rm-val">${d.stale_count}</div><div class="rm-label">Stale (1yr+)</div></div>
+      </div>
+      <div class="sb-title" style="margin-bottom:10px">Warnings</div>
+      ${warnings}
+      ${tlds ? `<div class="sb-title" style="margin:14px 0 8px">TLD Breakdown</div><div style="font-size:0.82rem">${tlds}</div>` : ''}
+      ${sectors ? `<div class="sb-title" style="margin:14px 0 8px">Sector Breakdown</div><div style="font-size:0.82rem">${sectors}</div>` : ''}`;
+  } catch(e) {
+    document.getElementById('portfolio-result').innerHTML =
+      '<div style="color:var(--red)">Failed to load portfolio data</div>';
   }
 }
 
