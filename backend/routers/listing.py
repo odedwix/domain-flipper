@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from database import get_db
 from models import Domain
 from purchase.afternic import list_on_afternic
+from purchase.godaddy import create_aftermarket_listing
 from purchase.sedo import list_on_sedo
 from purchase.parked_page import generate_parked_page
 from config import get_settings
@@ -39,6 +40,10 @@ async def auto_list(
     # 1 — Afternic via nameserver update
     afternic = await list_on_afternic(d.name, asking_price)
     results["afternic"] = afternic
+
+    # 1b — GoDaddy aftermarket API to set the price (works alongside nameservers)
+    godaddy = await create_aftermarket_listing(d.name, asking_price)
+    results["godaddy"] = godaddy
 
     # 2 — Sedo (if configured)
     sedo = await list_on_sedo(d.name, asking_price)

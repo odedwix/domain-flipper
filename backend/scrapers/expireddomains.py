@@ -247,6 +247,31 @@ async def fetch_godaddy_auctions(max_pages: int = 5) -> list[dict]:
     return await _fetch_list("/godaddy-domain-auctions-with-bids/", "godaddy_auction", max_pages)
 
 
+async def fetch_dynadot_closeout(max_pages: int = 5) -> list[dict]:
+    """
+    Fetch Dynadot closeout domains — deeply discounted expiring domains from Dynadot's own registrar.
+    Often include aged domains with decent backlinks.
+    """
+    return await _fetch_list("/dynadot-closeout-domains/", "dynadot_closeout", max_pages)
+
+
+async def fetch_namecheap_auctions(max_pages: int = 5) -> list[dict]:
+    """
+    Fetch Namecheap expiring domain auctions.
+    High-quality source — Namecheap customers often registered brandable names.
+    Some have thousands of backlinks (e.g. SeoToolStation.com had 6,100 BL).
+    """
+    return await _fetch_list("/namecheap-auction-domains/", "namecheap_auction", max_pages)
+
+
+async def fetch_sedo_expiring(max_pages: int = 5) -> list[dict]:
+    """
+    Fetch Sedo expiring domains — domains listed on Sedo marketplace that are expiring.
+    Sedo domains tend to be previously monetized / parked with value.
+    """
+    return await _fetch_list("/sedo-expired-domains/", "sedo_expiring", max_pages)
+
+
 async def fetch_demo_domains() -> list[dict]:
     """
     Returns a hardcoded list of demo domains when no session cookie is set.

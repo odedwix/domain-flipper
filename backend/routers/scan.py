@@ -6,7 +6,11 @@ from fastapi import APIRouter, Depends, BackgroundTasks
 from sqlalchemy.orm import Session
 from database import get_db, SessionLocal
 from models import Domain, DomainScore, ScanLog
-from scrapers.expireddomains import fetch_expired_domains, fetch_expiring_domains, fetch_godaddy_auctions, fetch_demo_domains
+from scrapers.expireddomains import (
+    fetch_expired_domains, fetch_expiring_domains, fetch_godaddy_auctions,
+    fetch_dynadot_closeout, fetch_namecheap_auctions, fetch_sedo_expiring,
+    fetch_demo_domains,
+)
 from scrapers.whoisfreaks import fetch_all_whoisfreaks
 from valuation.scorer import score_domain, score_word
 from valuation.pagerank import get_pagerank_batch
@@ -40,18 +44,32 @@ async def _run_scan(use_demo: bool = False):
             scan_log.source = "demo"
         else:
             pages = max(1, settings.max_domains_per_scan // 25)
-            # Fetch from all sources in parallel: deleted + expiring (grace period) + whoisfreaks
-            deleted_task = fetch_expired_domains(max_pages=pages)
-            expiring_task = fetch_expiring_domains(max_pages=pages)
-            gd_task = fetch_godaddy_auctions(max_pages=5)
-            whoisfreaks_task = fetch_all_whoisfreaks(max_pages=3)
-            deleted_raw, expiring_raw, gd_raw, wf_raw = await asyncio.gather(
-                deleted_task, expiring_task, gd_task, whoisfreaks_task
+            # Fetch from all sources in parallel
+            (
+                deleted_raw, expiring_raw, gd_raw,
+                dynadot_raw, nc_raw, sedo_raw, wf_raw
+            ) = await asyncio.gather(
+                fetch_expired_domains(max_pages=pages),
+                fetch_expiring_domains(max_pages=pages),
+                fetch_godaddy_auctions(max_pages=5),
+                fetch_dynadot_closeout(max_pages=5),
+                fetch_namecheap_auctions(max_pages=5),
+                fetch_sedo_expiring(max_pages=5),
+                fetch_all_whoisfreaks(max_pages=3),
             )
-            # De-duplicate: GoDaddy auctions > expiring (grace period) > deleted > whoisfreaks
+            # De-duplicate by priority: GoDaddy > Namecheap auctions > Sedo > Dynadot > expiring > deleted > whoisfreaks
             seen = {}
             for d in gd_raw:
                 seen[d["name"]] = d
+            for d in nc_raw:
+                if d["name"] not in seen:
+                    seen[d["name"]] = d
+            for d in sedo_raw:
+                if d["name"] not in seen:
+                    seen[d["name"]] = d
+            for d in dynadot_raw:
+                if d["name"] not in seen:
+                    seen[d["name"]] = d
             for d in expiring_raw:
                 if d["name"] not in seen:
                     seen[d["name"]] = d
@@ -64,6 +82,12 @@ async def _run_scan(use_demo: bool = False):
                 sources.append("expiring")
             if gd_raw:
                 sources.append("godaddy_auctions")
+            if dynadot_raw:
+                sources.append("dynadot_closeout")
+            if nc_raw:
+                sources.append("namecheap_auction")
+            if sedo_raw:
+                sources.append("sedo_expiring")
             if wf_raw:
                 sources.append("whoisfreaks")
             scan_log.source = "+".join(sources)
@@ -186,6 +210,26 @@ async def _run_scan(use_demo: bool = False):
                     })
             db.commit()
             logger.info("Open PageRank enrichment complete")
+
+        # Auto-verify availability of all new domains against Namecheap
+        # Removes any that are already registered — keeps only genuinely buyable domains
+        if new_domains:
+            from routers.purchase import _batch_check_availability
+            names = [d.name for d in new_domains]
+            logger.info(f"Verifying availability of {len(names)} new domains via Namecheap")
+            removed = 0
+            BATCH = 50
+            for i in range(0, len(names), BATCH):
+                batch = names[i:i + BATCH]
+                results = await _batch_check_availability(batch)
+                for domain in new_domains[i:i + BATCH]:
+                    if results.get(domain.name) is False:
+                        db.delete(domain)
+                        removed += 1
+                db.commit()
+                await asyncio.sleep(0.5)
+            logger.info(f"Availability verification done — removed {removed} taken domains")
+            saved -= removed
 
         scan_log.finished_at = datetime.utcnow()
         scan_log.domains_scored = scored

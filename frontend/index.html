@@ -89,6 +89,8 @@ tr.selected td { background: var(--gold-dim); }
 .action-btn:hover { border-color: var(--gold); color: var(--gold); }
 .action-btn.buy { background: var(--gold); color: #000; border-color: var(--gold); }
 .action-btn.buy:hover { opacity: 0.85; }
+.action-btn.bid { background: #16a34a; color: #fff; border-color: #16a34a; text-decoration: none; display: inline-flex; align-items: center; }
+.action-btn.bid:hover { opacity: 0.85; color: #fff; }
 
 .empty-state { padding: 60px; text-align: center; color: var(--muted); }
 .empty-state h3 { font-family: 'DM Serif Display', serif; font-size: 1.4rem; color: #fff; margin-bottom: 8px; }
@@ -129,8 +131,8 @@ tr.selected td { background: var(--gold-dim); }
   display: flex; align-items: center; gap: 10px;
 }
 .panel-action-btn:hover { border-color: var(--gold); color: var(--gold); }
-.panel-action-btn.primary { background: var(--gold); color: #000; border-color: var(--gold); }
-.panel-action-btn.primary:hover { opacity: 0.85; }
+.panel-action-btn.primary { background: var(--gold); color: #000; border-color: var(--gold); text-decoration: none; }
+.panel-action-btn.primary:hover { opacity: 0.85; color: #000; }
 .panel-action-btn.danger { border-color: rgba(224,92,92,0.4); }
 .panel-action-btn.danger:hover { border-color: var(--red); color: var(--red); }
 
@@ -214,7 +216,7 @@ tr.selected td { background: var(--gold-dim); }
   <div class="spacer"></div>
   <span class="scan-status" id="scan-status-text"></span>
   <button class="scan-btn" id="scan-btn" onclick="triggerScan(false)">▶ Scan Now</button>
-  <button class="scan-btn" style="background:var(--blue);margin-left:6px" id="demo-btn" onclick="triggerScan(true)">Demo Data</button>
+
   <button class="scan-btn" style="background:#7c3aed;margin-left:6px" id="enrich-btn" onclick="enrichPageRank()">⚡ Enrich PageRank</button>
   <button class="scan-btn" style="background:#991b1b;margin-left:6px" id="lapse-btn" onclick="runLapseScan()">🔥 Lapse Scan</button>
   <button class="scan-btn" style="background:#065f46;margin-left:6px" id="verify-btn" onclick="verifyAvailable()">✓ Verify Available</button>
@@ -725,13 +727,23 @@ function renderTable(domains) {
   tbody.innerHTML = domains.map(d => {
     const color = scoreColor(d.score);
     const statusClass = `s-${d.status}`;
-    const isBuyable = d.status === 'available';
+    const cfg = sourceConfig(d.source, d.name);
+
+    let actionBtn = '';
+    if (d.status === 'available') {
+      if (cfg.canBuyDirect) {
+        actionBtn = `<button class="action-btn buy" onclick="openBuyModal(${d.id},'${d.name}')">Buy</button>`;
+      } else {
+        actionBtn = `<a class="action-btn bid" href="${cfg.actionUrl}" target="_blank" onclick="event.stopPropagation()">Bid ↗</a>`;
+      }
+    }
 
     return `<tr onclick="openPanel(${d.id})" id="row-${d.id}" ${currentDomain?.id === d.id ? 'class="selected"' : ''}>
       <td>
         <div class="domain-name">${d.sld}<span class="domain-tld">.${d.tld}</span></div>
         ${d.lapsed_label === 'HOT' ? `<div style="font-size:0.68rem;font-weight:700;color:#ef4444;letter-spacing:0.05em;margin-top:2px">🔥 HOT — owner likely to rebuy</div>` :
           d.lapsed_label === 'WARM' ? `<div style="font-size:0.68rem;color:#f97316;margin-top:2px">🌡 WARM — worth reaching out</div>` : ''}
+        <div style="font-size:0.65rem;color:${cfg.labelColor};margin-top:2px;font-weight:600">${cfg.label}</div>
       </td>
       <td>
         <div class="score-cell">
@@ -743,9 +755,7 @@ function renderTable(domains) {
       <td class="age-cell">${fmtAge(d.domain_age_years)}</td>
       <td class="bl-cell">${fmt(d.backlink_count)}</td>
       <td><span class="status-badge ${statusClass}">${d.status}</span></td>
-      <td onclick="event.stopPropagation()">
-        ${isBuyable ? `<button class="action-btn buy" onclick="openBuyModal(${d.id},'${d.name}')">Buy</button>` : ''}
-      </td>
+      <td onclick="event.stopPropagation()">${actionBtn}</td>
     </tr>`;
   }).join('');
 }
@@ -809,13 +819,28 @@ function renderPanel(d) {
 
   // Actions
   const actions = document.getElementById('pd-actions');
+  const cfg = sourceConfig(d.source, d.name);
   let btns = '';
+
+  if (cfg.tip && d.status === 'available') {
+    btns += `<div style="font-size:0.72rem;color:#a3a3a3;background:#1a1a1a;border:1px solid #333;border-radius:6px;padding:8px 10px;margin-bottom:8px;line-height:1.4">ℹ️ ${cfg.tip}</div>`;
+  }
+
   if (d.status === 'available') {
-    btns += `<button class="panel-action-btn primary" onclick="openBuyModal(${d.id},'${d.name}')">💳 Buy for ~$10.98</button>`;
+    if (cfg.canBuyDirect) {
+      btns += `<button class="panel-action-btn primary" onclick="openBuyModal(${d.id},'${d.name}')">💳 Register via Namecheap ~$10.98</button>`;
+    } else {
+      btns += `<a class="panel-action-btn primary" href="${cfg.actionUrl}" target="_blank">${cfg.actionLabel}</a>`;
+    }
     btns += `<button class="panel-action-btn" onclick="setStatus(${d.id},'watchlist')">👁 Add to Watchlist</button>`;
+    btns += `<button class="panel-action-btn" onclick="openOutreachModal(${d.id})">✉ Contact Owner</button>`;
     btns += `<button class="panel-action-btn danger" onclick="setStatus(${d.id},'passed')">✕ Pass</button>`;
   } else if (d.status === 'watchlist') {
-    btns += `<button class="panel-action-btn primary" onclick="openBuyModal(${d.id},'${d.name}')">💳 Buy for ~$10.98</button>`;
+    if (cfg.canBuyDirect) {
+      btns += `<button class="panel-action-btn primary" onclick="openBuyModal(${d.id},'${d.name}')">💳 Register via Namecheap ~$10.98</button>`;
+    } else {
+      btns += `<a class="panel-action-btn primary" href="${cfg.actionUrl}" target="_blank">${cfg.actionLabel}</a>`;
+    }
     btns += `<button class="panel-action-btn" onclick="setStatus(${d.id},'available')">↩ Unwatch</button>`;
   } else if (d.status === 'purchased') {
     btns += `<button class="panel-action-btn primary" onclick="openListModal(${d.id})">🚀 List for Sale (Afternic + Sedo)</button>`;
@@ -850,6 +875,57 @@ async function setStatus(id, status) {
     if (currentDomain?.id === id) openPanel(id);
   } catch (e) {
     showToast('Failed to update status', 'error');
+  }
+}
+
+// ── Source config: each source has a different purchase strategy ─────────────
+function sourceConfig(source, domainName) {
+  switch (source) {
+    case 'godaddy_auction':
+      return {
+        label: 'GoDaddy Auction', labelColor: '#16a34a', canBuyDirect: false,
+        actionLabel: '🏷 Bid on GoDaddy',
+        actionUrl: `https://auctions.godaddy.com/trpItemListing.aspx?miid=${domainName}`,
+        tip: 'Held in GoDaddy escrow — must bid on their platform, cannot register via Namecheap.'
+      };
+    case 'namecheap_auction':
+      return {
+        label: 'Namecheap Auction', labelColor: '#d97706', canBuyDirect: false,
+        actionLabel: '🏷 Bid on Namecheap',
+        actionUrl: `https://www.namecheap.com/market/detail/?Domain=${domainName}`,
+        tip: 'Listed on Namecheap marketplace — bid there, not via direct registration.'
+      };
+    case 'sedo_expiring':
+      return {
+        label: 'Sedo', labelColor: '#7c3aed', canBuyDirect: false,
+        actionLabel: '🏷 Bid on Sedo',
+        actionUrl: `https://sedo.com/search/?keyword=${domainName}`,
+        tip: 'Listed on Sedo marketplace — purchase through Sedo.'
+      };
+    case 'dynadot_closeout':
+      return {
+        label: 'Dynadot Closeout', labelColor: '#0891b2', canBuyDirect: false,
+        actionLabel: '🛒 Buy on Dynadot',
+        actionUrl: `https://www.dynadot.com/market/closeout.html`,
+        tip: 'Dynadot closeout domain — buy through Dynadot at a discount.'
+      };
+    case 'expiring':
+      return {
+        label: 'Expiring (Grace Period)', labelColor: '#ea580c', canBuyDirect: false,
+        actionLabel: '⏳ Backorder on Namecheap',
+        actionUrl: `https://www.namecheap.com/domains/registration/results/?domain=${domainName}`,
+        tip: 'Still owned — in 30-day grace period before deletion. Backorder it to catch the moment it drops, or contact the owner.'
+      };
+    case 'whoisfreaks':
+      return {
+        label: 'WhoisFreaks', labelColor: '#6b7280', canBuyDirect: true,
+        actionLabel: '💳 Register on Namecheap', actionUrl: null, tip: null
+      };
+    default: // expireddomains / deleted
+      return {
+        label: 'Deleted', labelColor: '#6b7280', canBuyDirect: true,
+        actionLabel: '💳 Register on Namecheap', actionUrl: null, tip: null
+      };
   }
 }
 
@@ -892,7 +968,8 @@ async function confirmBuy() {
       loadDomains(currentPage);
       if (currentDomain?.id === buyDomainId) openPanel(buyDomainId);
     } else {
-      showToast(`Purchase failed: ${d.error}`, 'error');
+      const msg = d.error || d.detail || 'Unknown error';
+      showToast(`Purchase failed: ${msg}`, 'error');
     }
   } catch (e) {
     showToast('Purchase request failed', 'error');
@@ -956,7 +1033,16 @@ async function confirmList() {
     // Store parked HTML for download
     if (d.parked_html) window._parkedHtml = { domain: d.domain, html: d.parked_html };
 
-    showToast('Domain listed for sale!', 'success');
+    // Auto-open Afternic claim page if GoDaddy API couldn't set the price
+    const gd = d.details?.godaddy;
+    if (!gd || !gd.success) {
+      const domainName = d.domain;
+      setTimeout(() => {
+        window.open(`https://www.afternic.com/domain-for-sale/add?domain=${domainName}`, '_blank');
+      }, 800);
+    }
+
+    showToast('Domain listed! Afternic claim page opened — verify ownership to set price.', 'success');
   } catch (e) {
     showToast('Listing failed', 'error');
   } finally {
