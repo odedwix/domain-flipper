@@ -184,3 +184,55 @@ async def enrich_status(db: Session = Depends(get_db)):
         "warm_count": warm,
         "coverage_pct": round(with_da / total * 100, 1) if total else 0,
     }
+
+
+# ── Trends enrichment ─────────────────────────────────────────────────────────
+
+_trends_enriching = False
+_trends_progress: dict = {"done": 0, "total": 0}
+
+
+async def _run_trends_enrichment():
+    global _trends_enriching, _trends_progress
+    if _trends_enriching:
+        return
+    _trends_enriching = True
+    db = SessionLocal()
+    try:
+        from valuation.trends import get_trend_score
+        domains = db.query(Domain).filter(Domain.trend_score.is_(None)).all()
+        _trends_progress = {"done": 0, "total": len(domains)}
+        logger.info(f"Trends enrichment: {len(domains)} domains to process")
+
+        for d in domains:
+            result = await get_trend_score(d.sld)
+            d.trend_score = result["trend_score"]
+            d.trend_rising = result["trend_rising"]
+            db.commit()
+            _trends_progress["done"] += 1
+            if _trends_progress["done"] % 10 == 0:
+                logger.info(f"Trends: {_trends_progress['done']}/{_trends_progress['total']}")
+            await asyncio.sleep(2.5)   # rate limit Google
+
+        logger.info("Trends enrichment complete")
+    except Exception:
+        logger.exception("Trends enrichment error")
+    finally:
+        _trends_enriching = False
+        db.close()
+
+
+@router.post("/trends")
+async def enrich_trends(background_tasks: BackgroundTasks):
+    """Score all domains by Google Trends interest for their keyword."""
+    if _trends_enriching:
+        return {"status": "already_running", "progress": _trends_progress}
+    background_tasks.add_task(_run_trends_enrichment)
+    return {"status": "started", "message": "Trends enrichment started — scores will populate gradually (rate-limited)"}
+
+
+@router.get("/trends/status")
+async def trends_status(db: Session = Depends(get_db)):
+    done = db.query(Domain).filter(Domain.trend_score.isnot(None)).count()
+    rising = db.query(Domain).filter(Domain.trend_rising == True).count()  # noqa: E712
+    return {"enriching": _trends_enriching, "progress": _trends_progress, "done": done, "rising": rising}

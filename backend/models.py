@@ -32,6 +32,15 @@ class Domain(Base):
     estimated_value = Column(Float, default=0.0)
     score_breakdown = Column(Text, nullable=True)  # JSON string
 
+    # Liquidity & market signals (computed at scan time)
+    liquidity_score = Column(Integer, nullable=True)      # 0–100
+    liquidity_label = Column(String, nullable=True)       # LIQUID | MODERATE | SLOW | ILLIQUID
+    brand_conflict = Column(Boolean, nullable=True)       # conflicts with a major brand
+    brand_conflict_term = Column(String, nullable=True)   # which brand
+    hot_niches = Column(String, nullable=True)            # JSON list of matched niche keywords
+    trend_score = Column(Integer, nullable=True)          # Google Trends 0–100
+    trend_rising = Column(Boolean, nullable=True)         # rising in last 3 months
+
     # Lapsed-by-mistake enrichment
     lapsed_score = Column(Integer, nullable=True)        # 0–100
     lapsed_label = Column(String, nullable=True)         # HOT / WARM / LUKEWARM / COLD

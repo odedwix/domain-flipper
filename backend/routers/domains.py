@@ -43,6 +43,13 @@ def _domain_to_dict(d: Domain) -> dict:
         "prev_owner_name": d.prev_owner_name,
         "prev_owner_email": d.prev_owner_email,
         "prev_owner_country": d.prev_owner_country,
+        "liquidity_score": d.liquidity_score,
+        "liquidity_label": d.liquidity_label,
+        "brand_conflict": d.brand_conflict,
+        "brand_conflict_term": d.brand_conflict_term,
+        "hot_niches": json.loads(d.hot_niches) if d.hot_niches else [],
+        "trend_score": d.trend_score,
+        "trend_rising": d.trend_rising,
     }
 
 
@@ -51,7 +58,12 @@ async def list_domains(
     status: str = Query(None),
     min_score: float = Query(0),
     tld: str = Query(None),
-    lapsed: str = Query(None),   # HOT | WARM | LUKEWARM | COLD
+    lapsed: str = Query(None),    # HOT | WARM | LUKEWARM | COLD
+    liquid: bool = Query(None),
+    brand_conflict: bool = Query(None),
+    niche: str = Query(None),
+    min_value: float = Query(None),
+    max_value: float = Query(None),
     sort: str = Query("score"),
     page: int = Query(1, ge=1),
     per_page: int = Query(50, le=200),
@@ -66,6 +78,16 @@ async def list_domains(
         q = q.filter(Domain.tld == tld.lower().lstrip("."))
     if lapsed:
         q = q.filter(Domain.lapsed_label == lapsed.upper())
+    if liquid is True:
+        q = q.filter(Domain.liquidity_label == "LIQUID")
+    if brand_conflict is True:
+        q = q.filter(Domain.brand_conflict == True)  # noqa: E712
+    if niche:
+        q = q.filter(Domain.hot_niches.contains(niche.lower()))
+    if min_value is not None:
+        q = q.filter(Domain.estimated_value >= min_value)
+    if max_value is not None:
+        q = q.filter(Domain.estimated_value <= max_value)
 
     if sort == "score":
         q = q.order_by(desc(Domain.score))
@@ -75,6 +97,8 @@ async def list_domains(
         q = q.order_by(desc(Domain.domain_age_years))
     elif sort == "discovered":
         q = q.order_by(desc(Domain.discovered_at))
+    elif sort == "liquidity":
+        q = q.order_by(desc(Domain.liquidity_score))
 
     total = q.count()
     domains = q.offset((page - 1) * per_page).limit(per_page).all()

@@ -14,3 +14,4 @@ sendgrid==6.11.0
 tldextract==5.1.2
 pydantic-settings==2.2.1
 aiofiles==23.2.1
+wordfreq

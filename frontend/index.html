@@ -47,6 +47,41 @@ body { font-family: 'Mulish', sans-serif; background: var(--bg); color: var(--te
 .filter-select:focus, .filter-input:focus { outline: none; border-color: var(--gold); }
 .filter-label { font-size: 0.75rem; color: var(--muted); }
 
+/* ── Price range slider ── */
+.price-slider-wrap {
+  display: flex; align-items: center; gap: 8px;
+  background: var(--card); border: 1px solid var(--border); border-radius: 8px;
+  padding: 0 12px; height: 34px; min-width: 200px;
+}
+.price-slider-label { font-size: 0.78rem; color: var(--gold); font-weight: 700; white-space: nowrap; min-width: 70px; }
+.price-slider-track {
+  position: relative; flex: 1; height: 4px;
+  background: var(--border); border-radius: 2px;
+}
+.price-slider-fill {
+  position: absolute; height: 100%; background: var(--gold);
+  border-radius: 2px; pointer-events: none;
+}
+.price-thumb {
+  position: absolute; top: 50%; width: 100%;
+  transform: translateY(-50%);
+  -webkit-appearance: none; appearance: none;
+  background: transparent; pointer-events: none;
+  height: 4px; outline: none; margin: 0;
+}
+.price-thumb::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 14px; height: 14px; border-radius: 50%;
+  background: var(--gold); border: 2px solid #111;
+  pointer-events: all; cursor: pointer;
+  box-shadow: 0 0 4px rgba(212,168,67,0.5);
+}
+.price-thumb::-moz-range-thumb {
+  width: 14px; height: 14px; border-radius: 50%;
+  background: var(--gold); border: 2px solid #111;
+  pointer-events: all; cursor: pointer;
+}
+
 /* Table */
 .table-wrap { background: var(--card); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
 table { width: 100%; border-collapse: collapse; }
@@ -220,6 +255,7 @@ tr.selected td { background: var(--gold-dim); }
   <button class="scan-btn" style="background:#7c3aed;margin-left:6px" id="enrich-btn" onclick="enrichPageRank()">⚡ Enrich PageRank</button>
   <button class="scan-btn" style="background:#991b1b;margin-left:6px" id="lapse-btn" onclick="runLapseScan()">🔥 Lapse Scan</button>
   <button class="scan-btn" style="background:#065f46;margin-left:6px" id="verify-btn" onclick="verifyAvailable()">✓ Verify Available</button>
+  <button class="scan-btn" style="background:#065f46;margin-left:6px" id="trends-btn" onclick="runTrendsScan()">📈 Trends</button>
   <button class="scan-btn" style="background:var(--surface);border:1px solid var(--border);color:var(--text);margin-left:6px" onclick="openQuickAnalyze()">🔍 Quick Analyze</button>
   <button class="scan-btn" style="background:var(--surface);border:1px solid var(--border);color:var(--text);margin-left:6px" onclick="openPortfolioHealth()">📊 Portfolio</button>
 </header>
@@ -245,9 +281,31 @@ tr.selected td { background: var(--gold-dim); }
       <option value="org">.org</option>
     </select>
     <input type="number" class="filter-input" id="f-score" placeholder="Min score" min="0" max="100" style="width:110px" onchange="loadDomains()">
+    <div class="price-slider-wrap" id="price-slider-wrap">
+      <span class="price-slider-label" id="price-slider-label">$ Any</span>
+      <div class="price-slider-track" id="price-track">
+        <div class="price-slider-fill" id="price-fill"></div>
+        <input type="range" class="price-thumb" id="f-price-min" min="0" max="50000" step="100" value="0">
+        <input type="range" class="price-thumb" id="f-price-max" min="0" max="50000" step="100" value="50000">
+      </div>
+    </div>
     <button class="filter-select" id="f-hot-btn" onclick="toggleHotFilter()" style="background:var(--surface);border:1px solid var(--border);color:var(--muted);cursor:pointer;font-size:0.78rem;padding:0 12px">🔥 HOT only</button>
+    <button class="filter-select" id="f-liquid-btn" onclick="toggleLiquidFilter()" style="background:var(--surface);border:1px solid var(--border);color:var(--muted);cursor:pointer;font-size:0.78rem;padding:0 12px">⚡ Quick-sell only</button>
+    <button class="filter-select" id="f-brand-btn" onclick="toggleBrandFilter()" style="background:var(--surface);border:1px solid var(--border);color:var(--muted);cursor:pointer;font-size:0.78rem;padding:0 12px">™ Brand conflict</button>
+    <select class="filter-select" id="f-niche" onchange="loadDomains()">
+      <option value="">All niches</option>
+      <option value="ai">AI / ML</option>
+      <option value="loan">Finance</option>
+      <option value="health">Health</option>
+      <option value="home">Real estate</option>
+      <option value="shop">E-commerce</option>
+      <option value="hire">HR / Recruiting</option>
+      <option value="crypto">Crypto / Web3</option>
+      <option value="solar">Climate</option>
+    </select>
     <select class="filter-select" id="f-sort" onchange="loadDomains()">
       <option value="score">Sort: Score</option>
+      <option value="liquidity">Sort: Liquidity</option>
       <option value="value">Sort: Value</option>
       <option value="age">Sort: Age</option>
       <option value="discovered">Sort: Newest</option>
@@ -606,6 +664,48 @@ async function runLapseScan() {
   btn.innerHTML = '🔥 Lapse Scan';
 }
 
+async function runTrendsScan() {
+  const btn = document.getElementById('trends-btn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Starting…';
+  try {
+    const r = await fetch(`${API}/api/enrich/trends`, { method: 'POST' });
+    const d = await r.json();
+    if (d.status === 'already_running') {
+      showToast('Trends scan already running', 'info');
+    } else {
+      showToast('📈 Trends scan started — scores populate gradually (rate-limited by Google)', 'info');
+      setTimeout(pollTrendsScan, 5000);
+      return;
+    }
+  } catch (e) {
+    showToast('Failed to start trends scan', 'error');
+  }
+  btn.disabled = false;
+  btn.innerHTML = '📈 Trends';
+}
+
+async function pollTrendsScan() {
+  try {
+    const r = await fetch(`${API}/api/enrich/trends/status`);
+    const d = await r.json();
+    const btn = document.getElementById('trends-btn');
+    if (d.enriching) {
+      const pct = d.progress?.total ? Math.round(d.progress.done / d.progress.total * 100) : 0;
+      btn.innerHTML = `<span class="spinner"></span> ${pct}% — ${d.rising ?? 0} rising`;
+      loadDomains(currentPage);
+      setTimeout(pollTrendsScan, 5000);
+    } else {
+      btn.disabled = false;
+      btn.innerHTML = '📈 Trends';
+      showToast(`📈 Trends complete — ${d.rising} domains trending up`, 'success');
+      loadDomains(1);
+    }
+  } catch (e) {
+    setTimeout(pollTrendsScan, 8000);
+  }
+}
+
 async function pollLapseScan() {
   try {
     const r = await fetch(`${API}/api/enrich/status`);
@@ -664,14 +764,65 @@ function setSort(s) {
   loadDomains();
 }
 
+// ── Price slider ──────────────────────────────────────────────────────────────
+const PRICE_MAX = 50000;
+
+function fmtSliderPrice(v) {
+  v = parseInt(v);
+  if (v >= PRICE_MAX) return 'Any';
+  if (v >= 1000) return '$' + (v / 1000).toFixed(v % 1000 === 0 ? 0 : 1) + 'k';
+  return '$' + v;
+}
+
+function updatePriceSlider() {
+  const minEl = document.getElementById('f-price-min');
+  const maxEl = document.getElementById('f-price-max');
+  let lo = parseInt(minEl.value), hi = parseInt(maxEl.value);
+  if (lo > hi) { lo = hi; minEl.value = lo; }
+  const pct_lo = (lo / PRICE_MAX) * 100;
+  const pct_hi = (hi / PRICE_MAX) * 100;
+  document.getElementById('price-fill').style.left = pct_lo + '%';
+  document.getElementById('price-fill').style.width = (pct_hi - pct_lo) + '%';
+  const label = (lo === 0 && hi >= PRICE_MAX) ? '$ Any'
+    : lo === 0 ? `Up to ${fmtSliderPrice(hi)}`
+    : hi >= PRICE_MAX ? `${fmtSliderPrice(lo)}+`
+    : `${fmtSliderPrice(lo)} – ${fmtSliderPrice(hi)}`;
+  document.getElementById('price-slider-label').textContent = label;
+  loadDomains(1);
+}
+
+function initPriceSlider() {
+  document.getElementById('f-price-min').addEventListener('input', updatePriceSlider);
+  document.getElementById('f-price-max').addEventListener('input', updatePriceSlider);
+  updatePriceSlider();
+}
+
 let hotFilterActive = false;
+let liquidFilterActive = false;
+let brandFilterActive = false;
+
+function _toggleFilterBtn(id, active, color) {
+  const btn = document.getElementById(id);
+  btn.style.background = active ? `${color}22` : 'var(--surface)';
+  btn.style.borderColor = active ? color : 'var(--border)';
+  btn.style.color = active ? color : 'var(--muted)';
+}
 
 function toggleHotFilter() {
   hotFilterActive = !hotFilterActive;
-  const btn = document.getElementById('f-hot-btn');
-  btn.style.background = hotFilterActive ? 'rgba(239,68,68,0.15)' : 'var(--surface)';
-  btn.style.borderColor = hotFilterActive ? '#ef4444' : 'var(--border)';
-  btn.style.color = hotFilterActive ? '#ef4444' : 'var(--muted)';
+  _toggleFilterBtn('f-hot-btn', hotFilterActive, '#ef4444');
+  loadDomains(1);
+}
+
+function toggleLiquidFilter() {
+  liquidFilterActive = !liquidFilterActive;
+  _toggleFilterBtn('f-liquid-btn', liquidFilterActive, '#f59e0b');
+  loadDomains(1);
+}
+
+function toggleBrandFilter() {
+  brandFilterActive = !brandFilterActive;
+  _toggleFilterBtn('f-brand-btn', brandFilterActive, '#8b5cf6');
   loadDomains(1);
 }
 
@@ -680,12 +831,20 @@ async function loadDomains(page = currentPage) {
   const tld = document.getElementById('f-tld').value;
   const minScore = document.getElementById('f-score').value || 0;
   const sort = document.getElementById('f-sort').value;
+  const niche = document.getElementById('f-niche').value;
+  const priceMin = parseInt(document.getElementById('f-price-min').value) || 0;
+  const priceMax = parseInt(document.getElementById('f-price-max').value) || PRICE_MAX;
 
   const params = new URLSearchParams({
     page, per_page: 50, sort, min_score: minScore,
     ...(status && { status }),
     ...(tld && { tld }),
+    ...(niche && { niche }),
+    ...(priceMin > 0 && { min_value: priceMin }),
+    ...(priceMax < PRICE_MAX && { max_value: priceMax }),
     ...(hotFilterActive && { lapsed: 'HOT' }),
+    ...(liquidFilterActive && { liquid: 'true' }),
+    ...(brandFilterActive && { brand_conflict: 'true' }),
   });
 
   try {
@@ -743,6 +902,9 @@ function renderTable(domains) {
         <div class="domain-name">${d.sld}<span class="domain-tld">.${d.tld}</span></div>
         ${d.lapsed_label === 'HOT' ? `<div style="font-size:0.68rem;font-weight:700;color:#ef4444;letter-spacing:0.05em;margin-top:2px">🔥 HOT — owner likely to rebuy</div>` :
           d.lapsed_label === 'WARM' ? `<div style="font-size:0.68rem;color:#f97316;margin-top:2px">🌡 WARM — worth reaching out</div>` : ''}
+        ${d.liquidity_label === 'LIQUID' ? `<div style="font-size:0.65rem;font-weight:700;color:#f59e0b;margin-top:2px">⚡ LIQUID — likely quick sale</div>` : ''}
+        ${d.brand_conflict ? `<div style="font-size:0.65rem;font-weight:700;color:#8b5cf6;margin-top:2px">™ Brand conflict: ${d.brand_conflict_term}</div>` : ''}
+        ${d.trend_rising ? `<div style="font-size:0.65rem;color:#34d399;margin-top:2px">📈 Trending up</div>` : ''}
         <div style="font-size:0.65rem;color:${cfg.labelColor};margin-top:2px;font-weight:600">${cfg.label}</div>
       </td>
       <td>
@@ -1332,6 +1494,16 @@ function renderEnrichment(d) {
   wrap.innerHTML = existing + `
     <div style="margin-bottom:18px">
       ${flagPills ? `<div class="sb-title" style="margin-bottom:10px">Signal Flags</div>${flagPills}` : ''}
+      <div class="sb-title" style="margin:14px 0 10px">Market Signals</div>
+      ${(() => {
+        const liqColor = {LIQUID:'#f59e0b',MODERATE:'#60a5fa',SLOW:'#9ca3af',ILLIQUID:'#ef4444'}[d.liquidity_label] || '#9ca3af';
+        const liqParts = [];
+        if (d.liquidity_label) liqParts.push(`<span style="font-weight:700;color:${liqColor}">⚡ ${d.liquidity_label}</span> — liquidity score ${d.liquidity_score ?? '—'}/100`);
+        if (d.brand_conflict) liqParts.push(`<span style="color:#a78bfa">™ Brand conflict: <strong>${d.brand_conflict_term}</strong> — defensive buy candidate</span>`);
+        if (d.hot_niches?.length) liqParts.push(`🎯 Hot niches: <strong>${d.hot_niches.join(', ')}</strong>`);
+        if (d.trend_score != null) liqParts.push(`📈 Google Trends score: <strong>${d.trend_score}/100</strong>${d.trend_rising ? ' — <span style="color:#34d399">rising ↑</span>' : ''}`);
+        return liqParts.length ? liqParts.map(p => `<div style="font-size:0.8rem;color:#ccc;padding:4px 0;border-bottom:1px solid #1f1f1f">${p}</div>`).join('') : '<div style="color:var(--dim);font-size:0.8rem">Run a scan to compute liquidity signals</div>';
+      })()}
       <div class="sb-title" style="margin:14px 0 10px">Will They Rebuy?</div>
       ${lapsedHtml}
       ${ownerHtml}
@@ -1446,6 +1618,7 @@ async function openPortfolioHealth() {
 // ── Init ──────────────────────────────────────────────────────────────────────
 
 async function init() {
+  initPriceSlider();
   await loadDomains();
 }
 

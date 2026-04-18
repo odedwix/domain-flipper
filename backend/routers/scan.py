@@ -13,6 +13,7 @@ from scrapers.expireddomains import (
 )
 from scrapers.whoisfreaks import fetch_all_whoisfreaks
 from valuation.scorer import score_domain, score_word
+from valuation.liquidity import liquidity_score
 from valuation.pagerank import get_pagerank_batch
 from config import get_settings
 
@@ -152,6 +153,11 @@ async def _run_scan(use_demo: bool = False):
             if result["total_score"] < settings.min_score_threshold:
                 continue
 
+            liq = liquidity_score(
+                name=name, tld=result["tld"], sld=result["sld"],
+                backlink_count=bl or 0, domain_age_years=age or 0,
+            )
+
             domain = Domain(
                 name=name,
                 sld=result["sld"],
@@ -165,6 +171,11 @@ async def _run_scan(use_demo: bool = False):
                     k: v for k, v in result.items()
                     if k.endswith("_score")
                 }),
+                liquidity_score=liq["liquidity_score"],
+                liquidity_label=liq["liquidity_label"],
+                brand_conflict=liq["brand_conflict"],
+                brand_conflict_term=liq["brand_conflict_term"],
+                hot_niches=json.dumps(liq["hot_niches"]),
             )
             db.add(domain)
             db.flush()  # get the domain.id
